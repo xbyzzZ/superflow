@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -135,11 +136,17 @@ class BuiltinGuidesTests(unittest.TestCase):
         han = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
         text_suffixes = {".json", ".md", ".py", ".toml", ".txt", ".yaml", ".yml"}
         chinese_label = "\u7b80\u4f53\u4e2d\u6587"
-        for path in ROOT.rglob("*"):
+        tracked = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "-z"],
+            check=True,
+            stdout=subprocess.PIPE,
+        ).stdout.decode("utf-8").split("\0")
+        for relative in tracked:
+            path = ROOT / relative
             if (
-                not path.is_file()
+                not relative
+                or not path.is_file()
                 or path.name == "README_CN.md"
-                or "__pycache__" in path.parts
                 or path.suffix not in text_suffixes
             ):
                 continue
