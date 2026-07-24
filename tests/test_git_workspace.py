@@ -1,0 +1,149 @@
+from __future__ import annotations
+
+import subprocess
+import sys
+import tempfile
+import unittest
+from contextlib import redirect_stderr
+from io import StringIO
+from pathlib import Path
+
+
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+import git_workspace  # noqa: E402
+
+
+def git(directory: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(directory), *args],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+class GitWorkspaceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name) / "repo"
+        self.root.mkdir()
+        git(self.root, "init", "-q")
+        git(self.root, "config", "user.name", "Superflow Test")
+        git(self.root, "config", "user.email", "superflow@example.invalid")
+        (self.root / "README.md").write_text("initial\n", encoding="utf-8")
+        git(self.root, "add", "README.md")
+        git(self.root, "commit", "-q", "-m", "Initial commit")
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_preflight_and_dirty_base_rejection(self) -> None:
+        result = git_workspace.preflight(self.root)
+        self.assertTrue(result["clean"])
+        (self.root / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+        with self.assertRaises(git_workspace.GitSafetyError):
+            git_workspace.preflight(self.root)
+
+    def test_snapshot_contains_head_and_refs(self) -> None:
+        result = git_workspace.snapshot(self.root)
+        self.assertEqual(result["head"], git(self.root, "rev-parse", "HEAD"))
+        self.assertIn("refs/heads", " ".join(result["refs"]))
+
+    def test_create_worktree_and_local_commit(self) -> None:
+        created = git_workspace.create_worktree(self.root, "run-1")
+        worktree = Path(created["worktree"])
+        self.assertEqual(
+            worktree.resolve(),
+            (self.root / ".worktrees" / "superflow" / "run-1").resolve(),
+        )
+        (worktree / "feature.txt").write_text("feature\n", encoding="utf-8")
+        committed = git_workspace.commit(worktree, "Test: local commit", ["feature.txt"])
+        self.assertEqual(len(committed["sha"]), 40)
+        self.assertEqual(committed["paths"], ["feature.txt"])
+
+    def test_local_cherry_pick(self) -> None:
+        created = git_workspace.create_worktree(self.root, "run-pick")
+        worktree = Path(created["worktree"])
+        (worktree / "picked.txt").write_text("picked\n", encoding="utf-8")
+        commit = git_workspace.commit(worktree, "Test: commit to cherry-pick", ["picked.txt"])
+        result = git_workspace.cherry_pick(self.root, commit["sha"])
+        self.assertEqual(len(result["head"]), 40)
+        self.assertTrue((self.root / "picked.txt").exists())
+        self.assertEqual((self.root / "picked.txt").read_text(encoding="utf-8"), "picked\n")
+
+    def test_commit_rejects_preexisting_staged_content(self) -> None:
+        created = git_workspace.create_worktree(self.root, "run-staged")
+        worktree = Path(created["worktree"])
+        (worktree / "unrelated.txt").write_text("unrelated\n", encoding="utf-8")
+        git(worktree, "add", "unrelated.txt")
+        (worktree / "wanted.txt").write_text("wanted\n", encoding="utf-8")
+        with self.assertRaises(git_workspace.GitSafetyError):
+            git_workspace.commit(worktree, "Test: reject mixed changes", ["wanted.txt"])
+        self.assertEqual(git(worktree, "diff", "--cached", "--name-only"), "unrelated.txt")
+
+    def test_failed_commit_restores_index(self) -> None:
+        created = git_workspace.create_worktree(self.root, "run-hook-failure")
+        worktree = Path(created["worktree"])
+        hook = Path(git(worktree, "rev-parse", "--git-path", "hooks/pre-commit"))
+        if not hook.is_absolute():
+            hook = worktree / hook
+        hook.parent.mkdir(parents=True, exist_ok=True)
+        hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        hook.chmod(0o755)
+        (worktree / "wanted.txt").write_text("wanted\n", encoding="utf-8")
+        with self.assertRaises(git_workspace.GitSafetyError):
+            git_workspace.commit(worktree, "Test: hook failure", ["wanted.txt"])
+        self.assertEqual(git(worktree, "diff", "--cached", "--name-only"), "")
+
+    def test_non_git_and_unsafe_worktree_path_are_rejected(self) -> None:
+        plain = Path(self.temporary.name) / "plain"
+        plain.mkdir()
+        with self.assertRaises(git_workspace.GitSafetyError):
+            git_workspace.preflight(plain)
+        with self.assertRaises(git_workspace.GitSafetyError):
+            git_workspace.create_worktree(self.root, "run-2", path=self.root / "outside")
+
+    def test_commit_rejects_broad_or_magic_pathspecs(self) -> None:
+        created = git_workspace.create_worktree(self.root, "run-pathspec")
+        worktree = Path(created["worktree"])
+        (worktree / "wanted.txt").write_text("wanted\n", encoding="utf-8")
+        for path in (".", ":(top)**"):
+            with self.subTest(path=path), self.assertRaises(git_workspace.GitSafetyError):
+                git_workspace.commit(worktree, "Test: reject broad path", [path])
+
+    def test_commit_allows_normal_dot_git_prefixed_files(self) -> None:
+        created = git_workspace.create_worktree(self.root, "run-dot-git-files")
+        worktree = Path(created["worktree"])
+        (worktree / ".github").mkdir()
+        (worktree / ".gitignore").write_text("*.tmp\n", encoding="utf-8")
+        (worktree / ".github" / "ci.yml").write_text("name: ci\n", encoding="utf-8")
+        result = git_workspace.commit(
+            worktree,
+            "Test: allow a regular Git configuration file",
+            [".gitignore", ".github/ci.yml"],
+        )
+        self.assertEqual(set(result["paths"]), {".gitignore", ".github/ci.yml"})
+
+    def test_any_executable_hook_blocks_automatic_git_write(self) -> None:
+        hook = Path(git(self.root, "rev-parse", "--git-path", "hooks/post-checkout"))
+        if not hook.is_absolute():
+            hook = self.root / hook
+        hook.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        hook.chmod(0o755)
+        with self.assertRaises(git_workspace.GitSafetyError):
+            git_workspace.create_worktree(self.root, "run-hook-block")
+
+    def test_cli_has_no_remote_or_destructive_subcommands(self) -> None:
+        parser = git_workspace._parser()
+        for command in ("push", "merge", "delete-worktree"):
+            with self.subTest(command=command), redirect_stderr(StringIO()):
+                with self.assertRaises(SystemExit):
+                    parser.parse_args([command])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Superflow Delivery Workflow"
+  short_description: "A product-manager orchestrator routes six specialist agents through design, implementation, review, testing, and delivery."
+  default_prompt: "Use $superflow to orchestrate architecture, UI design, frontend and backend implementation, code review, testing, and verified delivery."
+
+policy:
+  allow_implicit_invocation: true

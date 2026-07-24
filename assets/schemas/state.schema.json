@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://superflow.local/schemas/state.schema.json",
+  "title": "Superflow Run State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "revision",
+    "run_id",
+    "status",
+    "tool_config",
+    "active_task_id",
+    "pending_repair",
+    "plan",
+    "candidate_sha",
+    "gates",
+    "repair_rounds",
+    "risks",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "revision": {"type": "integer", "minimum": 1},
+    "run_id": {
+      "type": "string",
+      "pattern": "^sf-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "initialized",
+        "preflight",
+        "discovery",
+        "requirements_ready",
+        "architecting",
+        "designing",
+        "planned",
+        "implementing",
+        "verifying",
+        "reviewing",
+        "fixing",
+        "ready",
+        "risk_accepted",
+        "blocked",
+        "cancelled",
+        "finished"
+      ]
+    },
+    "tool_config": {"$ref": "#/$defs/toolConfig"},
+    "active_task_id": {
+      "oneOf": [
+        {"type": "string", "minLength": 1},
+        {"type": "null"}
+      ]
+    },
+    "pending_repair": {
+      "oneOf": [
+        {"$ref": "#/$defs/pendingRepair"},
+        {"type": "null"}
+      ]
+    },
+    "plan": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/task"}
+    },
+    "candidate_sha": {
+      "oneOf": [
+        {"type": "string", "pattern": "^[0-9a-f]{7,64}$"},
+        {"type": "null"}
+      ]
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "test": {"$ref": "#/$defs/gate"},
+        "review": {"$ref": "#/$defs/gate"}
+      }
+    },
+    "repair_rounds": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/risk"}
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "toolSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "details"],
+      "properties": {
+        "provider": {"type": "string", "minLength": 1},
+        "details": {
+          "oneOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "toolConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "browser", "ui_prototype"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "browser": {"$ref": "#/$defs/toolSelection"},
+        "ui_prototype": {"$ref": "#/$defs/toolSelection"}
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "status"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "done", "blocked"]
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "task_id", "result", "sha", "evidence", "valid", "recorded_at"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-f0-9]{16}$"},
+        "task_id": {"type": "string", "minLength": 1},
+        "result": {"type": "string", "enum": ["PASS", "FAIL"]},
+        "sha": {"type": "string", "pattern": "^[0-9a-f]{7,64}$"},
+        "evidence": {},
+        "valid": {"type": "boolean"},
+        "recorded_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate", "gate_id", "sha", "accepted_by", "reason", "accepted_at"],
+      "properties": {
+        "gate": {"type": "string", "enum": ["test", "review"]},
+        "gate_id": {"type": "string", "pattern": "^[a-f0-9]{16}$"},
+        "sha": {"type": "string", "pattern": "^[0-9a-f]{7,64}$"},
+        "accepted_by": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "accepted_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "pendingRepair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "gate", "gate_id", "sha"],
+      "properties": {
+        "task_id": {"type": "string", "minLength": 1},
+        "gate": {"type": "string", "enum": ["test", "review"]},
+        "gate_id": {"type": "string", "pattern": "^[a-f0-9]{16}$"},
+        "sha": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"}
+      }
+    }
+  }
+}
