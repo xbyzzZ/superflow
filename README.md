@@ -3,7 +3,7 @@
 [![CI](https://github.com/xbyzzZ/superflow/actions/workflows/ci.yml/badge.svg)](https://github.com/xbyzzZ/superflow/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[Simplified Chinese](README_CN.md)
+[简体中文](README_CN.md)
 
 Superflow is a Codex Skill for orchestrating an end-to-end software delivery workflow with one product-manager main agent and six conditionally routed specialist agents.
 

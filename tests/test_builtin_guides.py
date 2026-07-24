@@ -115,9 +115,10 @@ class BuiltinGuidesTests(unittest.TestCase):
         self.assertIn("(references/role-memory.md)", skill)
         self.assertIn("--capability <capability>", skill)
 
-    def test_repository_is_english_except_chinese_readme(self) -> None:
+    def test_repository_is_english_except_localized_readme_content(self) -> None:
         han = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
         text_suffixes = {".json", ".md", ".py", ".toml", ".txt", ".yaml", ".yml"}
+        chinese_label = "\u7b80\u4f53\u4e2d\u6587"
         for path in ROOT.rglob("*"):
             if (
                 not path.is_file()
@@ -127,7 +128,11 @@ class BuiltinGuidesTests(unittest.TestCase):
             ):
                 continue
             with self.subTest(path=str(path.relative_to(ROOT))):
-                self.assertIsNone(han.search(path.read_text(encoding="utf-8")))
+                content = path.read_text(encoding="utf-8")
+                if path.name == "README.md":
+                    self.assertEqual(content.count(f"[{chinese_label}](README_CN.md)"), 1)
+                    content = content.replace(chinese_label, "")
+                self.assertIsNone(han.search(content))
 
 
 if __name__ == "__main__":
