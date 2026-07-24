@@ -26,7 +26,7 @@ ROLES = {
     "code-reviewer",
 }
 STATUSES = {"success", "partial", "failed", "blocked"}
-FORBIDDEN_PREFIXES = (".codex/agents", ".codex/workflows", ".git")
+FORBIDDEN_PREFIXES = (".codex", ".git")
 REQUIRED_FIELDS: dict[str, type] = {
     "role": str,
     "taskId": str,

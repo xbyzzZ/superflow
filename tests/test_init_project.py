@@ -77,6 +77,8 @@ class InitProjectTests(unittest.TestCase):
         lines = exclude.read_text(encoding="utf-8").splitlines()
         for line in init_project.EXCLUDE_LINES:
             self.assertEqual(lines.count(line), 1)
+        self.assertEqual(init_project.EXCLUDE_LINES[0], ".codex/")
+        git(self.project, "check-ignore", ".codex/agents/agent-0.md")
 
     def test_managed_template_is_upgraded(self) -> None:
         self.initialize()
@@ -165,17 +167,17 @@ class InitProjectTests(unittest.TestCase):
         self.assertEqual(payload["status"], "blocked")
         self.assertFalse((plain / ".codex").exists())
 
-    def test_symlink_and_tracked_workflows_are_rejected(self) -> None:
+    def test_symlink_and_any_tracked_codex_file_are_rejected(self) -> None:
         outside = self.root / "outside"
         outside.mkdir()
         (self.project / ".codex").symlink_to(outside, target_is_directory=True)
         with self.assertRaises(init_project.InitBlocked):
             self.initialize()
         (self.project / ".codex").unlink()
-        workflow = self.project / ".codex" / "workflows" / "tracked.txt"
-        workflow.parent.mkdir(parents=True)
-        workflow.write_text("tracked\n", encoding="utf-8")
-        git(self.project, "add", ".codex/workflows/tracked.txt", "-f")
+        local_config = self.project / ".codex" / "local.json"
+        local_config.parent.mkdir(parents=True)
+        local_config.write_text("{}\n", encoding="utf-8")
+        git(self.project, "add", ".codex/local.json", "-f")
         with self.assertRaises(init_project.InitBlocked):
             self.initialize()
 

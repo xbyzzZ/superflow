@@ -939,8 +939,6 @@ class WorkflowState:
             "--untracked-files=all",
             "--",
             ".",
-            ":(exclude).codex/workflows",
-            ":(exclude).codex/agents",
         ):
             raise StateError("The integration worktree contains uncommitted or untracked changes")
         git_dir = Path(self._git("rev-parse", "--git-dir"))

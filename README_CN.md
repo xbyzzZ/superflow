@@ -87,7 +87,7 @@ python3 <superflow>/scripts/init_project.py --project "$PWD" \
   --ui-provider penpot-mcp
 ~~~
 
-示例中的 provider 不能作为默认值静默使用，必须替换成用户实际选择。脚本会把项目选择写入 Git 共享配置 `info/superflow.json`，并在 `.codex/agents/` 下安装或升级六份 Agent 配置。与用户自定义内容冲突的文件会保留。如果 Codex 需要重启才能发现新 Agent 或所选插件，Superflow 会暂停并要求用户重启或新开会话。
+示例中的 provider 不能作为默认值静默使用，必须替换成用户实际选择。脚本会把项目选择写入 Git 共享配置 `info/superflow.json`，在 `.codex/agents/` 下安装或升级六份 Agent 配置，并通过 Git 本地的 `info/exclude` 排除整个 `.codex/` 目录。如果已有任何 `.codex` 文件被 Git 跟踪，初始化会直接拒绝继续。与用户自定义内容冲突的文件会保留。如果 Codex 需要重启才能发现新 Agent 或所选插件，Superflow 会暂停并要求用户重启或新开会话。
 
 项目已有配置时会直接复用。只有用户明确要求时才能用 `--reconfigure` 改选。每次运行会冻结启动时的选择；改选后旧运行只能阻塞或取消，不能混用新旧 provider 的证据继续。
 
@@ -190,6 +190,7 @@ gates/
 ## 安全边界
 
 - 专业子代理不能联系用户、更新工作流状态或执行 Git 写操作。
+- 项目本地的整个 `.codex/` 目录通过 Git `info/exclude` 排除；发现任何已跟踪的 `.codex` 文件都会阻塞初始化。
 - 只有主代理可以暂存、提交和集成代码。
 - push、PR、最终 merge、分支删除和 worktree 删除永不自动执行。
 - Git 脚本只提供本地预检、worktree 创建、snapshot、状态、提交和 cherry-pick。

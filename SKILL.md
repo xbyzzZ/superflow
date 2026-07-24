@@ -58,7 +58,7 @@ Append `--browser-custom '<details>'` or `--ui-custom '<details>'` as required. 
 
 Read the JSON result:
 
-- non-Git project, unsafe symlink, or tracked legacy `.codex/workflows` -> stop and request remediation;
+- non-Git project, unsafe symlink, or any Git-tracked `.codex` file -> stop and request remediation;
 - missing first-use choices, missing custom details, or unauthorized reconfiguration -> stop for user decision;
 - non-empty `conflicts` -> preserve user files and request direction;
 - after installing or upgrading six templates, verify each required Agent immediately before its first dispatch;

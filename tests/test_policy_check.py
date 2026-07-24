@@ -89,7 +89,7 @@ class PolicyCheckTests(unittest.TestCase):
         self.assertIn("tester_scope", {item["code"] for item in checked["violations"]})
 
     def test_forbidden_paths_and_git_snapshot_changes_are_rejected(self) -> None:
-        result = base_result(filesChanged=[".codex/workflows/run/state.json"])
+        result = base_result(filesChanged=[".codex/local.json"])
         after = {"head": "b" * 40, "refs": {"refs/heads/main": "b" * 40}}
         checked = self.check(result, after=after)
         codes = {item["code"] for item in checked["violations"]}

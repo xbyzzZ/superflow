@@ -30,7 +30,7 @@ The main agent cannot substitute its own professional PASS for architecture, UI,
 
 - contacting the user or invoking user-decision tools;
 - spawning, managing, or stopping agents;
-- modifying `.codex/agents`, `.codex/workflows`, or `.git`;
+- modifying `.codex` or `.git`;
 - Git writes or remote operations;
 - modifying unauthorized paths;
 - expanding product scope;

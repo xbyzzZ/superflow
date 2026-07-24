@@ -90,7 +90,7 @@ python3 <superflow>/scripts/init_project.py --project "$PWD" \
   --ui-provider penpot-mcp
 ~~~
 
-The example providers are not silent defaults; replace them with the user's actual selections. The script installs or upgrades six project Agent templates under `.codex/agents/` and writes tool selections to shared Git metadata. It preserves conflicting user files and pauses when a restart is required to discover an Agent or plugin.
+The example providers are not silent defaults; replace them with the user's actual selections. The script installs or upgrades six project Agent templates under `.codex/agents/`, excludes the entire `.codex/` directory through Git's local `info/exclude`, and writes tool selections to shared Git metadata. Initialization refuses to continue if any `.codex` file is already tracked. It preserves conflicting user files and pauses when a restart is required to discover an Agent or plugin.
 
 Existing configuration is reused. Only an explicit user request authorizes `--reconfigure`. Each run freezes its startup selection; after reconfiguration, an old run may only be blocked or cancelled and cannot mix provider evidence.
 
@@ -193,6 +193,7 @@ Memory never crosses roles. Shared contracts and project facts must travel throu
 ## Safety Model
 
 - Specialist agents cannot contact the user, update workflow state, or perform Git writes.
+- The entire project-local `.codex/` directory is excluded through Git `info/exclude`; tracked `.codex` files block initialization.
 - Only the main agent can stage, commit, or integrate changes.
 - Push, PR creation, final merge, branch deletion, and worktree deletion are never automatic.
 - The Git helper exposes only local preflight, worktree creation, snapshot, status, commit, and cherry-pick operations.

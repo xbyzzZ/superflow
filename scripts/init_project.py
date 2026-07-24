@@ -23,7 +23,7 @@ from project_config import (
     write_config,
 )
 
-EXCLUDE_LINES = (".codex/agents/", ".codex/workflows/", ".worktrees/superflow/")
+EXCLUDE_LINES = (".codex/", ".worktrees/superflow/")
 MANIFEST_NAME = ".superflow-managed.json"
 
 
@@ -113,10 +113,10 @@ def _read_manifest(path: Path) -> dict[str, Any]:
     return value
 
 
-def _tracked_workflows(root: Path) -> list[str]:
-    result = _git(root, "ls-files", "--", ".codex/workflows")
+def _tracked_codex_files(root: Path) -> list[str]:
+    result = _git(root, "ls-files", "--", ".codex")
     if result.returncode != 0:
-        raise InitBlocked("Unable to inspect tracked workflow files")
+        raise InitBlocked("Unable to inspect tracked .codex files")
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
@@ -204,9 +204,9 @@ def initialize(
         _ensure_no_symlink(root, path) if path.is_relative_to(root) else None
     if exclude_path.is_symlink():
         raise InitBlocked("Writing through a symlinked Git info/exclude is refused")
-    tracked = _tracked_workflows(root)
+    tracked = _tracked_codex_files(root)
     if tracked:
-        raise InitBlocked(".codex/workflows is tracked by Git; initialization is refused")
+        raise InitBlocked(".codex is tracked by Git; initialization is refused")
 
     templates = _template_files(skill_root.resolve())
     manifest = _read_manifest(manifest_path)
