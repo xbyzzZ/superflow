@@ -374,6 +374,41 @@
               "type": "null"
             }
           ]
+        },
+        "collectorRole": {
+          "type": "string",
+          "enum": [
+            "product-manager",
+            "architect",
+            "ui-designer",
+            "frontend-developer",
+            "backend-developer",
+            "tester",
+            "code-reviewer"
+          ]
+        },
+        "collectorTaskId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "collectorSession": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifactSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "adjudicatedBy": {
+          "type": "string",
+          "enum": [
+            "architect",
+            "ui-designer",
+            "frontend-developer",
+            "backend-developer",
+            "tester",
+            "code-reviewer"
+          ]
         }
       }
     },

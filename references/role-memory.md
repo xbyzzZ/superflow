@@ -30,7 +30,7 @@ Recall combines:
 - tag and content matches against the query;
 - recent records as a deterministic tie-breaker.
 
-Return at most 10 entries and 8 KiB. Treat every recalled item as potentially stale. Reverify facts before relying on them.
+Return at most 10 entries and 8 KiB. Recall is read-only and lock-free because writers atomically replace the active file; it must not create a lock or any other filesystem entry. Treat every recalled item as potentially stale. Reverify facts before relying on them.
 
 ## Write requests
 

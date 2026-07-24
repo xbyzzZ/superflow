@@ -9,6 +9,8 @@ Superflow is a Codex Skill for orchestrating an end-to-end software delivery wor
 
 It makes the main agent the single workflow coordinator, keeps recoverable project-local state, isolates implementation in Git worktrees, enforces structured agent contracts, and requires testing and code review to approve the same candidate commit before completion.
 
+Superflow activates only when the user explicitly invokes it in the current request, such as with `$superflow`. A suitable-looking task, prior Superflow use, project configuration, or an unfinished ledger never triggers it implicitly.
+
 ## Why Superflow
 
 Multi-agent coding often fails at the boundaries: agents change files outside their scope, approvals refer to different revisions, stale test results survive later edits, or no durable record explains how a run reached “done.” Superflow addresses these problems with deterministic scripts and fail-closed policies.
@@ -162,7 +164,7 @@ The scripts verify the Agent role, task, candidate SHA, Schema, authorized paths
 
 ## Recoverable State
 
-Each run is stored under .codex/workflows/<run-id>/:
+Each run is stored outside the worktree under the Git common directory at `superflow/workflows/<run-id>/`. Every linked worktree therefore reads the same ledger:
 
 ~~~text
 state.json
@@ -172,16 +174,17 @@ routing.json
 worktrees.json
 briefs/
 artifacts/
+attempts/
 gates/
 ~~~
 
-state.json is validated against the bundled Schema and cross-field invariants. events.jsonl is an append-only revision chain with state hashes and event-to-event hashes. Writes use a process lock and revision compare-and-swap to reject stale concurrent updates.
+Each planned task freezes its role, dependencies, authorized paths, acceptance criteria, exact verification commands, and observable results. Briefs, dispatch routing, worktree registrations, every accepted or rejected attempt, and candidate-bound gates are retained as audit artifacts. `state.json` is validated against the bundled Schema and cross-field invariants. `events.jsonl` is an append-only revision chain with state hashes and event-to-event hashes. Writes use a process lock and revision compare-and-swap to reject stale concurrent updates.
 
 ## Role-Isolated Memory
 
 All seven roles have separate project memory under the Git common directory at `superflow/memory/`, shared by linked worktrees but never committed or pushed.
 
-At dispatch, the main agent issues a temporary capability bound to one role, run, and task. The role uses that capability to query its own memory directly; `recall` does not accept a role selector. After the complete Agent result passes Schema and policy checks, the main agent ingests up to three structured `memoryWriteRequests` and revokes the capability.
+At dispatch, the main agent issues a temporary capability bound to one role, run, and task. The role uses that capability to query its own memory directly; `recall` does not accept a role selector and performs no filesystem write or lock creation. After the complete Agent result passes Schema and policy checks, the main agent ingests up to three structured `memoryWriteRequests` and revokes the capability.
 
 Recall selects high-importance, query-relevant, and recent entries, limited to 10 records and 8 KiB. Each role keeps at most 500 active records. New records may supersede old records, while superseded and overflow records move to a role-local archive.
 

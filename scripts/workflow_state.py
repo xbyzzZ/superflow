@@ -15,7 +15,7 @@ import secrets
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from schema_validation import SchemaValidationError, validate
@@ -44,6 +44,7 @@ TRANSITIONS = {
     "finished": set(),
 }
 RUN_ID_RE = re.compile(r"^sf-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$")
+TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 STATE_SCHEMA = json.loads(
     (Path(__file__).resolve().parents[1] / "assets" / "schemas" / "state.schema.json").read_text(
         encoding="utf-8"
@@ -78,13 +79,111 @@ def _atomic_write(path: Path, value: dict[str, Any]) -> None:
             os.unlink(temporary)
 
 
-def _normalize_plan(plan: Any) -> list[dict[str, str]]:
+def _git_common_directory(project: Path) -> Path:
+    process = subprocess.run(
+        ["git", "-C", str(project), "rev-parse", "--git-common-dir"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if process.returncode != 0 or not process.stdout.strip():
+        raise StateError(process.stderr.strip() or "Unable to resolve the Git common directory")
+    raw = Path(process.stdout.strip())
+    common = (raw if raw.is_absolute() else project / raw).resolve()
+    if not common.is_dir():
+        raise StateError("Git returned an invalid common directory")
+    return common
+
+
+def _worktree_roots(project: Path) -> list[Path]:
+    process = subprocess.run(
+        ["git", "-C", str(project), "worktree", "list", "--porcelain"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if process.returncode != 0:
+        raise StateError(process.stderr.strip() or "Unable to enumerate Git worktrees")
+    return [
+        Path(line.removeprefix("worktree ")).resolve()
+        for line in process.stdout.splitlines()
+        if line.startswith("worktree ")
+    ]
+
+
+def workflow_root(project: Path) -> Path:
+    """Return the non-versioned workflow storage shared by every linked worktree."""
+    return _git_common_directory(project.resolve()) / "superflow" / "workflows"
+
+
+def _legacy_run_directory(project: Path, run_id: str) -> Path | None:
+    matches = [
+        root / ".codex" / "workflows" / run_id
+        for root in _worktree_roots(project)
+        if (root / ".codex" / "workflows" / run_id).is_dir()
+    ]
+    if len(matches) > 1:
+        raise StateError("Multiple legacy workflow ledgers exist for the same run-id")
+    return matches[0] if matches else None
+
+
+TASK_ROLES = {
+    "product-manager",
+    "architect",
+    "ui-designer",
+    "frontend-developer",
+    "backend-developer",
+    "tester",
+    "code-reviewer",
+}
+TASK_CONTRACT_FIELDS = {
+    "role",
+    "dependencies",
+    "authorizedPaths",
+    "acceptanceCriteria",
+    "verificationCommands",
+    "observableResults",
+}
+
+
+def _safe_contract_path(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    normalized = value.replace("\\", "/")
+    path = PurePosixPath(normalized)
+    return (
+        normalized != "."
+        and not normalized.startswith(":")
+        and not path.is_absolute()
+        and ".." not in path.parts
+        and (not path.parts or path.parts[0] != ".git")
+    )
+
+
+def _normalize_string_list(value: Any, field: str, allow_empty: bool = False) -> list[str]:
+    if not isinstance(value, list) or (not allow_empty and not value):
+        raise StateError(f"{field} must be a {'possibly empty ' if allow_empty else 'non-empty '}array")
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise StateError(f"{field} must contain non-empty strings")
+        normalized = item.strip()
+        if normalized not in result:
+            result.append(normalized)
+    return result
+
+
+def _normalize_plan(plan: Any, require_contract: bool = True) -> list[dict[str, Any]]:
     if not isinstance(plan, list) or not plan:
         raise StateError("The plan must be a non-empty array")
-    normalized: list[dict[str, str]] = []
+    normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
     for index, item in enumerate(plan, 1):
         if isinstance(item, str):
+            if require_contract:
+                raise StateError("Every new plan item requires a complete task contract")
             task = {"id": f"task-{index}", "title": item, "status": "pending"}
         elif isinstance(item, dict):
             task = {
@@ -92,14 +191,81 @@ def _normalize_plan(plan: Any) -> list[dict[str, str]]:
                 "title": str(item.get("title", "")),
                 "status": str(item.get("status", "pending")),
             }
+            missing = TASK_CONTRACT_FIELDS - set(item)
+            if require_contract and missing:
+                raise StateError(
+                    "Task contract is missing fields: " + ", ".join(sorted(missing))
+                )
+            if not missing:
+                role = item.get("role")
+                if role not in TASK_ROLES:
+                    raise StateError("Invalid task role")
+                task.update(
+                    {
+                        "role": role,
+                        "dependencies": _normalize_string_list(
+                            item.get("dependencies"),
+                            "dependencies",
+                            allow_empty=True,
+                        ),
+                        "authorizedPaths": _normalize_string_list(
+                            item.get("authorizedPaths"),
+                            "authorizedPaths",
+                            allow_empty=role
+                            in {"product-manager", "architect", "ui-designer", "code-reviewer"},
+                        ),
+                        "acceptanceCriteria": _normalize_string_list(
+                            item.get("acceptanceCriteria"),
+                            "acceptanceCriteria",
+                        ),
+                        "verificationCommands": _normalize_string_list(
+                            item.get("verificationCommands"),
+                            "verificationCommands",
+                        ),
+                        "observableResults": _normalize_string_list(
+                            item.get("observableResults"),
+                            "observableResults",
+                        ),
+                    }
+                )
+                if not all(
+                    _safe_contract_path(path) for path in task["authorizedPaths"]
+                ):
+                    raise StateError("authorizedPaths contains an unsafe path")
         else:
             raise StateError("A plan item must be a string or object")
-        if not task["title"] or task["id"] in seen:
+        if (
+            not task["title"]
+            or not TASK_ID_RE.fullmatch(task["id"])
+            or task["id"] in seen
+        ):
             raise StateError("Plan item titles must be non-empty and IDs must be unique")
         if task["status"] not in {"pending", "in_progress", "done", "blocked"}:
             raise StateError("Invalid plan item status")
         seen.add(task["id"])
         normalized.append(task)
+    task_ids = {task["id"] for task in normalized}
+    for task in normalized:
+        for dependency in task.get("dependencies", []):
+            if dependency == task["id"] or dependency not in task_ids:
+                raise StateError("Task dependencies must reference another task in the plan")
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    by_id = {task["id"]: task for task in normalized}
+
+    def visit(task_id: str) -> None:
+        if task_id in visiting:
+            raise StateError("Task dependencies contain a cycle")
+        if task_id in visited:
+            return
+        visiting.add(task_id)
+        for dependency in by_id[task_id].get("dependencies", []):
+            visit(dependency)
+        visiting.remove(task_id)
+        visited.add(task_id)
+
+    for task_id in by_id:
+        visit(task_id)
     return normalized
 
 
@@ -120,15 +286,22 @@ class WorkflowState:
             raise StateError(process.stderr.strip() or "The target project is not a Git worktree")
         if Path(process.stdout.strip()).resolve() != self.project:
             raise StateError("--project must point to the target Git worktree root")
-        self.directory = self.project / ".codex" / "workflows" / run_id
+        self.shared_root = workflow_root(self.project)
+        shared_directory = self.shared_root / run_id
+        legacy_directory = None if shared_directory.exists() else _legacy_run_directory(
+            self.project, run_id
+        )
+        self.directory = legacy_directory or shared_directory
+        self.storage_boundary = (
+            self.directory.parent if legacy_directory is not None else self.shared_root
+        )
         self.state_path = self.directory / "state.json"
         self.events_path = self.directory / "events.jsonl"
         self.lock_path = self.directory / ".state.lock"
 
     def _assert_safe_storage(self) -> None:
         for path in (
-            self.project / ".codex",
-            self.project / ".codex" / "workflows",
+            self.storage_boundary,
             self.directory,
             self.state_path,
             self.events_path,
@@ -138,12 +311,18 @@ class WorkflowState:
                 raise StateError(f"Symlinked state path is refused: {path}")
             if path.exists():
                 try:
-                    path.resolve().relative_to(self.project)
+                    path.resolve().relative_to(self.storage_boundary.resolve())
                 except ValueError as exc:
-                    raise StateError(f"The state path escapes the project boundary: {path}") from exc
+                    raise StateError(f"The state path escapes its workflow storage boundary: {path}") from exc
 
     @classmethod
-    def create(cls, project: Path, plan: Any, run_id: str | None = None) -> "WorkflowState":
+    def create(
+        cls,
+        project: Path,
+        plan: Any,
+        run_id: str | None = None,
+        require_contract: bool = False,
+    ) -> "WorkflowState":
         store = cls(project, run_id or new_run_id())
         store._assert_safe_storage()
         if store.directory.exists():
@@ -152,11 +331,11 @@ class WorkflowState:
             tool_config = read_config(store.project)
         except ProjectConfigError as exc:
             raise StateError(str(exc)) from exc
+        normalized_plan = _normalize_plan(plan, require_contract=require_contract)
         store.directory.mkdir(parents=True, exist_ok=False)
-        for name in ("briefs", "artifacts", "gates"):
+        for name in ("briefs", "artifacts", "attempts", "gates"):
             (store.directory / name).mkdir()
         now = _now()
-        normalized_plan = _normalize_plan(plan)
         state = {
             "schema_version": 2,
             "revision": 0,
@@ -287,6 +466,12 @@ class WorkflowState:
             previous_state = None
             if self.state_path.exists():
                 previous_state = json.loads(self.state_path.read_text(encoding="utf-8"))
+            plan_path = self.directory / "plan.json"
+            previous_plan = (
+                json.loads(plan_path.read_text(encoding="utf-8"))
+                if plan_path.exists()
+                else None
+            )
             expected_revision = state.get("revision", 0)
             actual_revision = (previous_state or {}).get("revision", 0)
             if expected_revision != actual_revision:
@@ -320,6 +505,7 @@ class WorkflowState:
             ).hexdigest()
             try:
                 _atomic_write(self.state_path, state)
+                _atomic_write(plan_path, {"tasks": state["plan"]})
                 with self.events_path.open("a", encoding="utf-8") as handle:
                     handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
                     handle.flush()
@@ -329,12 +515,261 @@ class WorkflowState:
                     self.state_path.unlink(missing_ok=True)
                 else:
                     _atomic_write(self.state_path, previous_state)
+                if previous_plan is None:
+                    plan_path.unlink(missing_ok=True)
+                else:
+                    _atomic_write(plan_path, previous_plan)
                 if previous_event_size is None:
                     self.events_path.unlink(missing_ok=True)
                 elif self.events_path.exists():
                     with self.events_path.open("r+b") as handle:
                         handle.truncate(previous_event_size)
                 raise
+
+    def register_worktree(
+        self,
+        worktree: Path,
+        branch: str,
+        base_ref: str,
+    ) -> dict[str, Any]:
+        state = self.load()
+        self._require_mutable(state)
+        target = worktree.resolve()
+        process = subprocess.run(
+            ["git", "-C", str(target), "rev-parse", "--show-toplevel"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if process.returncode != 0 or Path(process.stdout.strip()).resolve() != target:
+            raise StateError("The registered path is not a Git worktree root")
+        if _git_common_directory(target) != _git_common_directory(self.project):
+            raise StateError("The registered worktree belongs to another Git repository")
+        path = self.directory / "worktrees.json"
+        value = json.loads(path.read_text(encoding="utf-8"))
+        worktrees = value.get("worktrees")
+        if not isinstance(worktrees, list):
+            raise StateError("worktrees.json is corrupt")
+        original = copy.deepcopy(value)
+        entry = {
+            "path": str(target),
+            "branch": branch,
+            "base_ref": base_ref,
+            "registered_at": _now(),
+        }
+        changed = not any(item.get("path") == entry["path"] for item in worktrees)
+        if changed:
+            worktrees.append(entry)
+            _atomic_write(path, {"worktrees": worktrees})
+        try:
+            self._save(
+                state,
+                "register_worktree",
+                {"path": entry["path"], "branch": branch, "base_ref": base_ref},
+            )
+        except (OSError, StateError):
+            if changed:
+                _atomic_write(path, original)
+            raise
+        return entry
+
+    @staticmethod
+    def _digest(value: Any) -> str:
+        payload = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def record_brief(self, task_id: str, brief: Any) -> dict[str, Any]:
+        state = self.load()
+        self._require_mutable(state)
+        task = next((item for item in state["plan"] if item["id"] == task_id), None)
+        if task is None or "role" not in task:
+            raise StateError("A brief requires a contracted task")
+        required = {
+            "runId",
+            "taskId",
+            "role",
+            "workDirectory",
+            "objective",
+            "dependencies",
+            "authorizedPaths",
+            "exclusions",
+            "acceptanceCriteria",
+            "verificationCommands",
+            "observableResults",
+            "browserProvider",
+            "uiPrototypeProvider",
+            "beforeSnapshot",
+            "resultSchema",
+        }
+        if not isinstance(brief, dict) or set(brief) != required:
+            raise StateError("The task brief is incomplete or contains unknown fields")
+        if (
+            brief["runId"] != self.run_id
+            or brief["taskId"] != task_id
+            or brief["role"] != task["role"]
+            or brief["dependencies"] != task["dependencies"]
+            or brief["authorizedPaths"] != task["authorizedPaths"]
+            or brief["acceptanceCriteria"] != task["acceptanceCriteria"]
+            or brief["verificationCommands"] != task["verificationCommands"]
+            or brief["observableResults"] != task["observableResults"]
+        ):
+            raise StateError("The task brief does not match the frozen task contract")
+        path = self.directory / "briefs" / f"{task_id}.json"
+        if path.exists():
+            raise StateError("A task brief is immutable once recorded")
+        _atomic_write(path, brief)
+        routing_path = self.directory / "routing.json"
+        routing = json.loads(routing_path.read_text(encoding="utf-8"))
+        assignments = routing.get("assignments")
+        if not isinstance(assignments, list):
+            raise StateError("routing.json is corrupt")
+        original_routing = copy.deepcopy(routing)
+        digest = self._digest(brief)
+        assignments.append(
+            {
+                "task_id": task_id,
+                "role": task["role"],
+                "decision": "dispatched",
+                "brief_digest": digest,
+                "recorded_at": _now(),
+            }
+        )
+        _atomic_write(routing_path, {"assignments": assignments})
+        try:
+            self._save(
+                state,
+                "record_brief",
+                {"task_id": task_id, "role": task["role"], "digest": digest},
+            )
+        except (OSError, StateError):
+            _atomic_write(routing_path, original_routing)
+            path.unlink(missing_ok=True)
+            raise
+        return {"path": str(path), "digest": digest}
+
+    def record_attempt(
+        self,
+        task_id: str,
+        role: str,
+        kind: str,
+        outcome: str,
+        result: Any,
+        before: Any,
+        after: Any,
+        reason: str,
+    ) -> dict[str, Any]:
+        state = self.load()
+        self._require_mutable(state)
+        task = next((item for item in state["plan"] if item["id"] == task_id), None)
+        if task is None or task.get("role") != role:
+            raise StateError("The attempt role does not match the frozen task contract")
+        if kind not in {"initial", "retry", "repair"}:
+            raise StateError("Invalid attempt kind")
+        if outcome not in {"accepted", "rejected", "blocked"}:
+            raise StateError("Invalid attempt outcome")
+        if (
+            not isinstance(result, dict)
+            or not isinstance(before, dict)
+            or not isinstance(after, dict)
+        ):
+            raise StateError("Attempt result and Git snapshots must be JSON objects")
+        if not reason.strip():
+            raise StateError("An attempt requires a reason")
+        brief_path = self.directory / "briefs" / f"{task_id}.json"
+        if not brief_path.is_file():
+            raise StateError("Record the immutable task brief before an attempt")
+        attempt_directory = self.directory / "attempts" / task_id
+        attempt_directory.mkdir(parents=True, exist_ok=True)
+        sequence = len(list(attempt_directory.glob("*.json"))) + 1
+        attempt_id = f"{task_id}-{sequence:03d}-{secrets.token_hex(4)}"
+        attempt = {
+            "attempt_id": attempt_id,
+            "sequence": sequence,
+            "task_id": task_id,
+            "role": role,
+            "kind": kind,
+            "outcome": outcome,
+            "reason": reason.strip(),
+            "brief_digest": self._digest(
+                json.loads(brief_path.read_text(encoding="utf-8"))
+            ),
+            "result_digest": self._digest(result),
+            "before": before,
+            "after": after,
+            "result": result,
+            "recorded_at": _now(),
+        }
+        path = attempt_directory / f"{attempt_id}.json"
+        _atomic_write(path, attempt)
+        try:
+            self._save(
+                state,
+                "record_attempt",
+                {
+                    "attempt_id": attempt["attempt_id"],
+                    "task_id": task_id,
+                    "role": role,
+                    "kind": kind,
+                    "outcome": outcome,
+                },
+            )
+        except (OSError, StateError):
+            path.unlink(missing_ok=True)
+            raise
+        return attempt
+
+    def _recorded_attempt_ids(self) -> set[str]:
+        if not self.events_path.is_file():
+            return set()
+        result: set[str] = set()
+        for line in self.events_path.read_text(encoding="utf-8").splitlines():
+            record = json.loads(line)
+            if record.get("event") == "record_attempt":
+                attempt_id = record.get("detail", {}).get("attempt_id")
+                if isinstance(attempt_id, str):
+                    result.add(attempt_id)
+        return result
+
+    def _accepted_attempt_exists(self, task_id: str) -> bool:
+        directory = self.directory / "attempts" / task_id
+        if not directory.is_dir():
+            return False
+        recorded = self._recorded_attempt_ids()
+        return any(
+            (
+                value := json.loads(path.read_text(encoding="utf-8"))
+            ).get("attempt_id")
+            in recorded
+            and value.get("outcome") == "accepted"
+            for path in directory.glob("*.json")
+        )
+
+    def _ensure_audit_complete(self, state: dict[str, Any]) -> None:
+        contracted = [task for task in state["plan"] if "role" in task]
+        if not contracted:
+            return
+        worktrees = json.loads(
+            (self.directory / "worktrees.json").read_text(encoding="utf-8")
+        ).get("worktrees")
+        if not isinstance(worktrees, list) or not worktrees:
+            raise StateError("A contracted run requires a registered integration worktree")
+        for task in contracted:
+            if not (self.directory / "briefs" / f"{task['id']}.json").is_file():
+                raise StateError(f"Task {task['id']} lacks an immutable brief")
+            if not self._accepted_attempt_exists(task["id"]):
+                raise StateError(f"Task {task['id']} lacks an accepted audited attempt")
+        for gate in GATES:
+            current = state["gates"].get(gate)
+            if current and not (
+                self.directory / "gates" / f"{current['id']}.json"
+            ).is_file():
+                raise StateError(f"The current {gate} gate lacks an immutable artifact")
 
     @staticmethod
     def _require_mutable(state: dict[str, Any]) -> None:
@@ -381,6 +816,7 @@ class WorkflowState:
         if target in {"ready", "risk_accepted"}:
             if any(item["status"] != "done" for item in state["plan"]):
                 raise StateError("All plan items must be complete before entering an approval terminal state")
+            self._ensure_audit_complete(state)
             self._ensure_candidate_current(state)
         if target in {"implementing", "fixing"}:
             for gate in state["gates"].values():
@@ -418,6 +854,19 @@ class WorkflowState:
             raise StateError("The plan item does not exist")
         if state.get("pending_repair") is not None:
             raise StateError("Plan item status cannot change while a repair lineage is unfinished")
+        if status in {"in_progress", "done"}:
+            by_id = {item["id"]: item for item in state["plan"]}
+            incomplete = [
+                dependency
+                for dependency in task.get("dependencies", [])
+                if by_id[dependency]["status"] != "done"
+            ]
+            if incomplete:
+                raise StateError(
+                    "Task dependencies are incomplete: " + ", ".join(incomplete)
+                )
+        if status == "done" and "role" in task and not self._accepted_attempt_exists(task_id):
+            raise StateError("A contracted task requires an accepted audited attempt before completion")
         if task["status"] != status:
             for gate in state["gates"].values():
                 gate["valid"] = False
@@ -555,7 +1004,7 @@ class WorkflowState:
             raise StateError("A new failed gate cannot switch away from an unfinished repair lineage")
         if state["status"] in {"ready", "risk_accepted"}:
             state["status"] = "verifying"
-        state["gates"][gate] = {
+        gate_record = {
             "id": secrets.token_hex(8),
             "task_id": task_id,
             "result": result,
@@ -564,6 +1013,9 @@ class WorkflowState:
             "valid": True,
             "recorded_at": _now(),
         }
+        state["gates"][gate] = gate_record
+        gate_path = self.directory / "gates" / f"{gate_record['id']}.json"
+        _atomic_write(gate_path, gate_record)
         if result == "FAIL":
             state["pending_repair"] = {
                 "task_id": task_id,
@@ -582,11 +1034,20 @@ class WorkflowState:
             task = next((item for item in state["plan"] if item["id"] == task_id), None)
             if task is not None:
                 task["status"] = "blocked"
-        self._save(
-            state,
-            "record_gate",
-            {"gate": gate, "result": result, "sha": sha.lower(), "repair_exhausted": exhausted},
-        )
+        try:
+            self._save(
+                state,
+                "record_gate",
+                {
+                    "gate": gate,
+                    "result": result,
+                    "sha": sha.lower(),
+                    "repair_exhausted": exhausted,
+                },
+            )
+        except (OSError, StateError):
+            gate_path.unlink(missing_ok=True)
+            raise
         return state
 
     @staticmethod
@@ -605,9 +1066,14 @@ class WorkflowState:
             and any(item.get("status") == "success" for item in agent_result.get("evidence", []))
         )
         if agent_result.get("role") == "tester":
-            passed = passed and any(
-                item.get("status") == "passed" and item.get("exitCode") == 0
-                for item in agent_result.get("commandsRun", [])
+            commands = agent_result.get("commandsRun", [])
+            passed = (
+                passed
+                and bool(commands)
+                and all(
+                    item.get("status") == "passed" and item.get("exitCode") == 0
+                    for item in commands
+                )
             )
         return "PASS" if passed else "FAIL"
 
@@ -678,6 +1144,7 @@ class WorkflowState:
             raise StateError("The dual-gate state became invalid before finishing")
         if state["status"] == "risk_accepted" and not self._risks_cover_failures(state):
             raise StateError("Risk acceptance became invalid before finishing")
+        self._ensure_audit_complete(state)
         self._ensure_candidate_current(state)
         state["status"] = "finished"
         state["active_task_id"] = None
@@ -728,6 +1195,20 @@ def _build_parser() -> argparse.ArgumentParser:
     task.add_argument("run_id")
     task.add_argument("task_id")
     task.add_argument("status")
+    brief = sub.add_parser("record-brief")
+    brief.add_argument("run_id")
+    brief.add_argument("task_id")
+    brief.add_argument("--brief", required=True, type=_json_argument)
+    attempt = sub.add_parser("record-attempt")
+    attempt.add_argument("run_id")
+    attempt.add_argument("task_id")
+    attempt.add_argument("role", choices=sorted(TASK_ROLES))
+    attempt.add_argument("kind", choices=("initial", "retry", "repair"))
+    attempt.add_argument("outcome", choices=("accepted", "rejected", "blocked"))
+    attempt.add_argument("--agent-result", required=True, type=_json_argument)
+    attempt.add_argument("--before", required=True, type=_json_argument)
+    attempt.add_argument("--after", required=True, type=_json_argument)
+    attempt.add_argument("--reason", required=True)
     return parser
 
 
@@ -735,7 +1216,12 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
         if args.command == "init":
-            store = WorkflowState.create(args.project, args.plan, args.run_id)
+            store = WorkflowState.create(
+                args.project,
+                args.plan,
+                args.run_id,
+                require_contract=True,
+            )
             result = store.load()
         else:
             store = WorkflowState(args.project, args.run_id)
@@ -761,6 +1247,19 @@ def main(argv: list[str] | None = None) -> int:
                 result = store.record_risk(args.gate, args.accepted_by, args.reason)
             elif args.command == "set-task":
                 result = store.set_task(args.task_id, args.status)
+            elif args.command == "record-brief":
+                result = store.record_brief(args.task_id, args.brief)
+            elif args.command == "record-attempt":
+                result = store.record_attempt(
+                    args.task_id,
+                    args.role,
+                    args.kind,
+                    args.outcome,
+                    args.agent_result,
+                    args.before,
+                    args.after,
+                    args.reason,
+                )
             else:
                 result = store.finish()
         print(json.dumps({"ok": True, "state": result}, ensure_ascii=False, sort_keys=True))

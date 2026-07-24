@@ -112,6 +112,43 @@ def _has_tool_evidence(
     )
 
 
+def _validate_external_evidence_provenance(
+    result: dict[str, Any],
+    expected_role: str | None,
+    add: Any,
+) -> None:
+    for item in result.get("evidence", []):
+        if (
+            not isinstance(item, dict)
+            or item.get("status") != "success"
+            or item.get("type") not in {"browser", "ui-prototype", "penpot"}
+        ):
+            continue
+        required = (
+            "collectorRole",
+            "collectorTaskId",
+            "collectorSession",
+            "artifactSha256",
+            "adjudicatedBy",
+        )
+        if any(not item.get(field) for field in required):
+            add(
+                "evidence_provenance",
+                "Successful browser and prototype evidence requires collector, session, artifact hash, and adjudicator provenance",
+            )
+            continue
+        if expected_role is not None and item.get("adjudicatedBy") != expected_role:
+            add(
+                "evidence_provenance",
+                "External evidence must be adjudicated by the role returning the result",
+            )
+        if item.get("collectorTaskId") != result.get("taskId"):
+            add(
+                "evidence_provenance",
+                "External evidence collectorTaskId must match the assigned task",
+            )
+
+
 def _git_write_or_indirect(command: str) -> bool:
     if GIT_TOKEN.search(command) is None:
         return False
@@ -290,6 +327,7 @@ def check_policy(
             and NEGATIVE_EVIDENCE.search(f"{item.get('reference', '')} {item.get('detail', '')}")
         ):
             add("evidence_consistency", "Successful evidence contains an explicit failure signal")
+    _validate_external_evidence_provenance(result, expected_role, add)
 
     if result.get("status") == "success":
         verification = result.get("verification", {})
@@ -315,6 +353,16 @@ def check_policy(
             for item in result.get("commandsRun", [])
         ):
             add("gate_evidence", "A tester PASS requires at least one successful test command")
+        if role in {"tester", "code-reviewer"} and any(
+            item.get("status") in {"failed", "partial", "not-run"}
+            or item.get("exitCode") not in {0, None}
+            for item in result.get("commandsRun", [])
+            if isinstance(item, dict)
+        ):
+            add(
+                "failed_gate_command",
+                "A gate PASS cannot contain a failed, partial, skipped, or nonzero command",
+            )
 
     if role in {"tester", "code-reviewer"}:
         if expected_candidate is None:

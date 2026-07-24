@@ -21,6 +21,8 @@ Before first initialization, ask the user to select:
 
 Store the selections in shared Git metadata at `info/superflow.json`; all worktrees use the same values. Include providers and custom details in every relevant brief. A run freezes the current values in `state.json.tool_config`.
 
+Configuration does not make a provider mandatory for every run. Verify browser readiness only for routed real-page work, and UI-provider readiness only for routed prototype work. A backend-only or otherwise unrelated task must not be blocked by an unused provider.
+
 Only an explicit user request authorizes `init_project.py --reconfigure`. New selections apply to new runs. A run whose frozen configuration differs from the project configuration may only transition to `blocked` or `cancelled`; never reinterpret evidence from one provider as evidence from another.
 
 If a selected provider is unavailable:
@@ -53,7 +55,7 @@ All code-facing roles follow this order.
 - For `custom`, follow details exactly.
 - Reuse project components, styles, variables, and page structure.
 - Cover required states and verify structure, reuse, and flow links.
-- Record `type=ui-prototype` evidence with the exact provider and locatable artifact reference.
+- Record `type=ui-prototype` evidence with the exact provider, collector role, task, session, artifact SHA-256, adjudicator, and locatable artifact reference.
 
 Unavailable tools, missing authorization, missing active files, or save failures block UI work. Prose, HTML, or a local static image cannot substitute for an editable prototype.
 
@@ -66,7 +68,7 @@ For navigation, clicks, input, screenshots, DOM, visual, responsive, or real-pag
 - use the selected Chrome MCP for `chrome-mcp`;
 - follow details exactly for `custom`;
 - read current provider instructions and verify connection, page context, and login state;
-- record `type=browser` evidence with the exact provider, page, action, and result.
+- record `type=browser` evidence with the exact provider, page, action, result, collector role, task, session, artifact SHA-256, and adjudicator.
 
 Request user login when authentication blocks work. Do not bypass the selection with standalone Playwright or Selenium, Computer Use, shell-launched browsers, or another provider.
 

@@ -288,6 +288,84 @@ class PolicyCheckTests(unittest.TestCase):
         self.assertIn("schema", codes)
         self.assertIn("gate_evidence", codes)
 
+    def test_gate_pass_rejects_any_failed_command(self) -> None:
+        result = base_result(
+            role="tester",
+            filesChanged=[],
+            candidateSha=SHA,
+            commandsRun=[
+                {
+                    "command": "python3 -m unittest",
+                    "status": "passed",
+                    "exitCode": 0,
+                    "summary": "Unit tests passed",
+                },
+                {
+                    "command": "npm run typecheck",
+                    "status": "failed",
+                    "exitCode": 2,
+                    "summary": "Type checking failed in a dependency",
+                },
+            ],
+        )
+        checked = self.check(
+            result,
+            expected_role="tester",
+            expected_task="task-1",
+            expected_candidate=SHA,
+        )
+        self.assertIn(
+            "failed_gate_command",
+            {item["code"] for item in checked["violations"]},
+        )
+
+    def test_browser_evidence_requires_collector_and_adjudicator_provenance(self) -> None:
+        result = base_result(
+            role="tester",
+            filesChanged=[],
+            candidateSha=SHA,
+            evidence=[
+                {
+                    "type": "browser",
+                    "status": "success",
+                    "provider": "codex-browser",
+                    "reference": "Captured browser session",
+                    "detail": "The page behavior passed",
+                }
+            ],
+        )
+        checked = self.check(
+            result,
+            expected_role="tester",
+            expected_task="task-1",
+            expected_candidate=SHA,
+            browser=True,
+            expected_browser_provider="codex-browser",
+        )
+        self.assertIn(
+            "evidence_provenance",
+            {item["code"] for item in checked["violations"]},
+        )
+
+        result["evidence"][0].update(
+            {
+                "collectorRole": "product-manager",
+                "collectorTaskId": "task-1",
+                "collectorSession": "browser-session-1",
+                "artifactSha256": "d" * 64,
+                "adjudicatedBy": "tester",
+            }
+        )
+        accepted = self.check(
+            result,
+            expected_role="tester",
+            expected_task="task-1",
+            expected_candidate=SHA,
+            browser=True,
+            expected_browser_provider="codex-browser",
+        )
+        self.assertTrue(accepted["ok"], accepted["violations"])
+
     def test_full_schema_is_enforced(self) -> None:
         result = base_result(verification={})
         checked = self.check(result)

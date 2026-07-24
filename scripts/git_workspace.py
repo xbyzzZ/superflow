@@ -93,6 +93,13 @@ def create_worktree(
     root = git_root(project)
     _assert_clean(root)
     _assert_no_active_hooks(root)
+    from workflow_state import RUN_ID_RE as SUPERFLOW_RUN_ID_RE, WorkflowState
+
+    store = None
+    if SUPERFLOW_RUN_ID_RE.fullmatch(run_id):
+        store = WorkflowState(root, run_id)
+        if not store.state_path.is_file():
+            raise GitSafetyError("A Superflow run must exist before its worktree is created")
     target = _safe_worktree_path(root, run_id, path)
     _checked(root, "rev-parse", "--verify", f"{base_ref}^{{commit}}")
     branch = f"superflow/{run_id}"
@@ -101,6 +108,15 @@ def create_worktree(
         raise GitSafetyError("The local work branch already exists")
     target.parent.mkdir(parents=True, exist_ok=True)
     _checked(root, "worktree", "add", "-b", branch, str(target), base_ref)
+    if store is not None:
+        try:
+            store.register_worktree(target, branch, base_ref)
+        except (OSError, RuntimeError) as exc:
+            _run(root, "worktree", "remove", "--force", str(target))
+            _run(root, "branch", "-D", branch)
+            raise GitSafetyError(
+                f"The worktree could not be registered and was rolled back: {exc}"
+            ) from exc
     return {
         "ok": True,
         "git_root": str(root),

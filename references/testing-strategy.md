@@ -49,4 +49,4 @@ If a test cannot be written first, record the concrete reason and repeatable equ
 4. real-page verification when applicable;
 5. command, exit-code, failure-count, skip, and environment review.
 
-PASS requires the correct candidate SHA, at least one successful real test command, evidence for every acceptance criterion, no unexplained failure or flaky test, real-page evidence when required, and no unauthorized test changes.
+PASS requires the correct candidate SHA, at least one successful real test command, evidence for every acceptance criterion, no failed, partial, skipped, not-run, or nonzero recorded command, no unexplained flaky test, real-page evidence when required, and no unauthorized test changes. A later successful command never erases an earlier failed command from the same gate attempt.

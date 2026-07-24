@@ -571,8 +571,8 @@ def recall(
     role = _role(role)
     if not 1 <= limit <= 50 or not 512 <= max_bytes <= 65536:
         raise MemoryError("Invalid recall limit or byte budget")
-    with _locked(project, role) as (active_path, _):
-        records = _active(_read_records(active_path, role))
+    active_path, _, _ = _paths(project, role)
+    records = _active(_read_records(active_path, role))
     query_tokens = _tokens(query)
     ranked: list[tuple[int, str, dict[str, Any]]] = []
     for record in records:

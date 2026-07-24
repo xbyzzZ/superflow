@@ -6,6 +6,8 @@ Superflow 是一个面向 Codex 的端到端软件交付工作流 Skill，由一
 
 它让主代理成为唯一流程协调者，通过项目内可恢复状态、Git worktree 隔离、结构化 Agent 合同和同一候选提交的测试/审查双门禁，把需求、设计、开发、验证和交付串成可审计流程。
 
+只有用户在当前请求中明确调用 Superflow（例如使用 `$superflow`）时才会启用这套规约。任务看起来适合、以前使用过 Superflow、项目已有配置或存在未完成账本，都不会触发隐式调用。
+
 ## 为什么使用 Superflow
 
 多代理编码最容易在边界处失控：子代理修改越界文件、测试和审查针对不同提交、代码变化后旧结论仍然有效，或者无法解释一个运行为什么被标记为完成。Superflow 使用确定性脚本和 fail-closed 策略约束这些问题。
@@ -159,7 +161,7 @@ python3 <superflow>/scripts/workflow_state.py \
 
 ## 可恢复状态
 
-每次运行保存在 .codex/workflows/<run-id>/：
+每次运行都保存在 worktree 之外的 Git common directory：`superflow/workflows/<run-id>/`。因此同一仓库的所有 linked worktree 始终读取同一份账本：
 
 ~~~text
 state.json
@@ -169,16 +171,17 @@ routing.json
 worktrees.json
 briefs/
 artifacts/
+attempts/
 gates/
 ~~~
 
-state.json 同时接受 JSON Schema 和跨字段不变量校验。events.jsonl 是带状态 hash 和事件间 hash 的追加式 revision 链。写入使用进程锁和 revision compare-and-swap，陈旧并发更新会被拒绝。
+每个计划任务都会冻结角色、依赖、授权路径、验收标准、精确验证命令和可观察结果。任务 brief、调度记录、worktree 注册信息、每次被接受或拒绝的尝试以及绑定 candidate 的 gate 都会作为审计产物保留。state.json 同时接受 JSON Schema 和跨字段不变量校验。events.jsonl 是带状态 hash 和事件间 hash 的追加式 revision 链。写入使用进程锁和 revision compare-and-swap，陈旧并发更新会被拒绝。
 
 ## 角色隔离记忆
 
 七个角色分别拥有项目级记忆，实际数据位于 Git common directory 的 `superflow/memory/`。同一仓库的 linked worktree 可以共享，但记忆不会进入 commit、push 或普通 clone。
 
-主代理派发任务时签发绑定 `role + runId + taskId` 的临时 capability。角色使用该 capability 主动查询自己的历史；`recall` 命令不能自行指定角色。完整 Agent 结果通过 Schema 和策略检查后，主代理才会写入最多三条结构化 `memoryWriteRequests`，随后撤销 capability。
+主代理派发任务时签发绑定 `role + runId + taskId` 的临时 capability。角色使用该 capability 主动查询自己的历史；`recall` 命令不能自行指定角色，召回过程不会写文件或创建锁。完整 Agent 结果通过 Schema 和策略检查后，主代理才会写入最多三条结构化 `memoryWriteRequests`，随后撤销 capability。
 
 召回组合高重要性、关键词相关和最近记忆，最多 10 条、8 KiB。每个角色最多保留 500 条有效记忆；新记录可以通过 `supersedes` 修订旧记录，旧记录和超限记录进入该角色自己的归档。
 
@@ -249,7 +252,7 @@ GitHub CI 会在 push 和 pull request 时运行完整测试并验证发布包�
 python3 -m unittest discover -s tests -v
 ~~~
 
-当前实现状态：**104 项测试全部通过**，覆盖项目级工具选择与漂移拦截、角色隔离记忆、英文发布边界、发布包可复现性、作者元数据、双门完整性、candidate 失效、返工上限、状态恢复、事件篡改、Git 路径安全、hook 阻塞和策略检查等对抗场景。
+当前实现状态：**118 项测试全部通过**，覆盖显式调用门、项目级工具选择与漂移拦截、共享工作流账本、完整任务合同与依赖、不可变尝试审计、外部证据来源、角色隔离记忆、英文发布边界、发布包可复现性、作者元数据、双门完整性、candidate 失效、返工上限、状态恢复、事件篡改、Git 路径安全、hook 阻塞和策略检查等对抗场景。
 
 使用 Codex Skill Creator 校验 Skill 元数据：
 

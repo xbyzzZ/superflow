@@ -9,6 +9,22 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class BuiltinGuidesTests(unittest.TestCase):
+    def test_skill_requires_explicit_current_request_invocation(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        agent_metadata = (ROOT / "agents" / "openai.yaml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "Use only when the user explicitly invokes Superflow in the current request",
+            skill,
+        )
+        self.assertIn(
+            "Without an explicit current-request invocation, do not initialize Superflow",
+            skill,
+        )
+        self.assertIn("allow_implicit_invocation: false", agent_metadata)
+        self.assertNotIn("allow_implicit_invocation: true", agent_metadata)
+
     """Verify that built-in expertise never degrades into external Skill dependencies."""
 
     def test_skill_directly_links_all_builtin_guides(self) -> None:

@@ -113,6 +113,31 @@ class RoleMemoryTests(unittest.TestCase):
         self.assertEqual(recalled["task_id"], "task-2")
         self.assertEqual(recalled["memories"][0]["summary"], request()["summary"])
 
+    def test_recall_is_read_only_and_does_not_create_a_lock(self) -> None:
+        self.record("architect", request("Keep the verified boundary"))
+        capability = role_memory.issue_capability(
+            self.project,
+            "architect",
+            "sf-20260724T010203Z-1234abcd",
+            "task-2",
+        )["capability"]
+        root = role_memory.memory_root(self.project)
+        lock = root / ".lock"
+        lock.unlink()
+        original_mode = root.stat().st_mode
+        root.chmod(0o500)
+        try:
+            recalled = role_memory.recall_with_capability(
+                self.project,
+                capability,
+                "verified boundary",
+            )
+        finally:
+            root.chmod(original_mode)
+
+        self.assertEqual(recalled["selected"], 1)
+        self.assertFalse(lock.exists())
+
     def test_capability_does_not_expose_another_role(self) -> None:
         self.record("frontend-developer")
         self.record("backend-developer", request("Preserve backend transaction order"))

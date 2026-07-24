@@ -7,12 +7,15 @@ import unittest
 from contextlib import redirect_stderr
 from io import StringIO
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import git_workspace  # noqa: E402
+import project_config  # noqa: E402
+import workflow_state  # noqa: E402
 
 
 def git(directory: Path, *args: str) -> str:
@@ -64,6 +67,66 @@ class GitWorkspaceTests(unittest.TestCase):
         committed = git_workspace.commit(worktree, "Test: local commit", ["feature.txt"])
         self.assertEqual(len(committed["sha"]), 40)
         self.assertEqual(committed["paths"], ["feature.txt"])
+
+    def test_superflow_worktree_registers_in_shared_ledger(self) -> None:
+        project_config.write_config(
+            self.root,
+            project_config.build_config("codex-browser", "penpot-mcp"),
+        )
+        run_id = "sf-20260724T010210Z-1234abd4"
+        store = workflow_state.WorkflowState.create(
+            self.root,
+            [{"id": "t1", "title": "Legacy-compatible task"}],
+            run_id,
+        )
+
+        created = git_workspace.create_worktree(self.root, run_id)
+
+        worktrees = __import__("json").loads(
+            (store.directory / "worktrees.json").read_text(encoding="utf-8")
+        )["worktrees"]
+        self.assertEqual(len(worktrees), 1)
+        self.assertEqual(
+            Path(worktrees[0]["path"]).resolve(),
+            Path(created["worktree"]).resolve(),
+        )
+
+    def test_missing_superflow_run_is_rejected_before_git_mutation(self) -> None:
+        run_id = "sf-20260724T010211Z-1234abd5"
+        with self.assertRaises(git_workspace.GitSafetyError):
+            git_workspace.create_worktree(self.root, run_id)
+        self.assertFalse((self.root / ".worktrees" / "superflow" / run_id).exists())
+        self.assertNotIn(
+            f"superflow/{run_id}",
+            git(self.root, "branch", "--format=%(refname:short)").splitlines(),
+        )
+
+    def test_failed_ledger_registration_rolls_back_new_worktree(self) -> None:
+        project_config.write_config(
+            self.root,
+            project_config.build_config("codex-browser", "penpot-mcp"),
+        )
+        run_id = "sf-20260724T010216Z-1234abda"
+        workflow_state.WorkflowState.create(
+            self.root,
+            [{"id": "t1", "title": "Legacy-compatible task"}],
+            run_id,
+        )
+        target = self.root / ".worktrees" / "superflow" / run_id
+
+        with mock.patch.object(
+            workflow_state.WorkflowState,
+            "register_worktree",
+            side_effect=workflow_state.StateError("Simulated ledger failure"),
+        ):
+            with self.assertRaises(git_workspace.GitSafetyError):
+                git_workspace.create_worktree(self.root, run_id)
+
+        self.assertFalse(target.exists())
+        self.assertNotIn(
+            f"superflow/{run_id}",
+            git(self.root, "branch", "--format=%(refname:short)").splitlines(),
+        )
 
     def test_local_cherry_pick(self) -> None:
         created = git_workspace.create_worktree(self.root, "run-pick")

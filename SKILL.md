@@ -1,16 +1,20 @@
 ---
 name: superflow
-description: Orchestrate multi-step feature, defect, and refactor delivery through a product-manager main agent and specialist Codex subagents for requirements, architecture, UI, frontend, backend, review, testing, and verified handoff. Use when work needs recoverable local state, isolated Git worktrees, bounded repair, and non-skippable same-candidate quality gates. Do not use for simple answers, read-only lookup, or one-step mechanical edits.
+description: Orchestrate multi-step feature, defect, and refactor delivery through a product-manager main agent and specialist Codex subagents for requirements, architecture, UI, frontend, backend, review, testing, and verified handoff. Use only when the user explicitly invokes Superflow in the current request. Never trigger it merely because a task appears suitable. Do not use for implicit matches, simple answers, read-only lookup, or one-step mechanical edits.
 ---
 
 # Superflow
+
+## Explicit invocation gate
+
+Apply this Skill only when the user explicitly invokes `superflow` in the current request. A matching task, prior use, project configuration, installed Agent templates, or an existing ledger does not authorize activation. Without an explicit current-request invocation, do not initialize Superflow, create its run or worktree, dispatch its roles, enforce its gates, or present ordinary work as a Superflow run.
 
 Act as the product manager and sole orchestrator. Own user communication, scope, task graph, workflow state, Git, approvals, and final reporting. Six specialist subagents perform only authorized professional work and return structured results.
 
 ## Invariants
 
-1. Only the main agent contacts the user, updates `.codex/workflows/`, creates branches or worktrees, stages, commits, and integrates code.
-2. Subagents never modify `.codex/agents/`, `.codex/workflows/`, or Git state, and never spawn agents.
+1. Only the main agent contacts the user, updates the shared workflow ledger, creates branches or worktrees, stages, commits, and integrates code.
+2. Subagents never modify `.codex/agents/`, the shared workflow ledger, or Git state, and never spawn agents.
 3. Every code candidate requires `code-reviewer` and `tester` gates against the same candidate SHA.
 4. The product manager cannot override a failed gate. Only the user may accept risk; retain FAIL.
 5. Allow at most three automatic repair rounds per task. Resume the original developer for rounds one and two; use a fresh developer for round three. Block after another failure.
@@ -54,11 +58,11 @@ Append `--browser-custom '<details>'` or `--ui-custom '<details>'` as required. 
 
 Read the JSON result:
 
-- non-Git project, unsafe symlink, or tracked `.codex/workflows` -> stop and request remediation;
+- non-Git project, unsafe symlink, or tracked legacy `.codex/workflows` -> stop and request remediation;
 - missing first-use choices, missing custom details, or unauthorized reconfiguration -> stop for user decision;
 - non-empty `conflicts` -> preserve user files and request direction;
-- after installing or upgrading six templates, verify the current Codex session can discover every Agent;
-- verify `project_config` providers are discoverable, connected, and authorized; request installation, connection, login, or restart without switching;
+- after installing or upgrading six templates, verify each required Agent immediately before its first dispatch;
+- freeze the selected providers during initialization, but verify discovery, connection, and authorization only when a routed task actually needs that provider;
 - when restart is required, preserve initialization state and ask the user to resume in a new session.
 
 Expected templates:
@@ -82,14 +86,14 @@ If the base worktree is dirty, do not stash, commit, or discard changes. Ask the
 
 1. inspect project instructions, requirements, tests, recent commits, and implementation;
 2. detect CodeGraph, selected browser, selected prototype provider, and relevant optional Skills;
-3. create tasks with stable IDs, titles, and initial statuses;
+3. create a complete task DAG. Every task has a stable ID, role, dependencies, authorized paths, acceptance criteria, exact verification commands, observable results, and an initial status;
 4. initialize the run:
 
 ```bash
-python3 <superflow>/scripts/workflow_state.py --project "$PWD" init --plan '<JSON-array>'
+python3 <superflow>/scripts/workflow_state.py --project "$PWD" init --plan plan.json
 ```
 
-Save `run_id`. The script freezes project tools in `state.json.tool_config`. Update state only through `workflow_state.py`; never edit state or events manually.
+`plan.json` must contain the complete task-contract array, not titles or placeholders. Save `run_id`. The script freezes project tools in `state.json.tool_config` and stores the run under the Git common directory at `superflow/workflows/<run-id>/`, so every linked worktree reads the same ledger. Update state only through `workflow_state.py`; never copy, edit, or synthesize ledger files manually.
 
 ## 3. Freeze requirements and route conditionally
 
@@ -113,12 +117,12 @@ Ask the user only for material product ambiguity, scope expansion, destructive o
 Route:
 
 - cross-module, API, database, authorization, migration, infrastructure, or public contract -> `architect`;
-- user-visible page, flow, state, or visual change -> `ui-designer`;
+- unresolved user-visible flow, state, interaction, or visual design decision -> `ui-designer`;
 - frontend implementation -> `frontend-developer`;
 - backend implementation -> `backend-developer`;
 - every code candidate -> `code-reviewer` and `tester`.
 
-Do not dispatch roles merely to use them. Architecture and UI may run in parallel only without dependency. Complete required prototype work before corresponding frontend implementation.
+Do not dispatch roles merely to use them. A mechanical implementation with frozen UI behavior and acceptance does not require `ui-designer`. Architecture and UI may run in parallel only without dependency. Complete required prototype work before corresponding frontend implementation.
 
 ## 4. Plan, isolate, and dispatch
 
@@ -133,6 +137,7 @@ python3 <superflow>/scripts/git_workspace.py create-worktree \
 - Parallel task worktrees require frozen interfaces, no order dependency, no shared state, and disjoint files.
 - Subagents modify only authorized files and never run Git.
 - Every brief is self-contained and includes work directory, paths, acceptance, baseline, result Schema, and the absolute `builtinGuide` for architect, UI, frontend, or backend.
+- Record the exact brief before dispatch with `workflow_state.py record-brief`. Record every accepted, rejected, blocked, retry, and repair result with `record-attempt`; never overwrite a previous attempt.
 - Before dispatch, issue a capability bound to the exact role, run, and task. Include only `roleMemoryScript` and `roleMemoryCapability` in that role's brief. Never reuse or share a capability between roles or tasks.
 - Relevant briefs include `browserProvider`, `uiPrototypeProvider`, and custom details.
 - Snapshot HEAD and refs before and after dispatch. `policy_check.py` may precheck output; gate recording rechecks policy and current repository facts.
@@ -149,7 +154,7 @@ python3 <superflow>/scripts/policy_check.py \
   --code
 ```
 
-Add `--ui` for prototype results or `--browser` for real-page results. Provider evidence must match project configuration. Never commit or mark success after a policy failure.
+Add `--ui` for prototype results or `--browser` for real-page results. Provider evidence must match project configuration. Successful browser and prototype evidence names the actual collector role, task, session, artifact SHA-256, and the result role that adjudicated it. The main agent may relay evidence it actually collected, but the tester must identify the main agent as collector instead of claiming collection. Never commit or mark success after a policy failure.
 
 After the result passes Schema and policy checks, ingest its role-bound memory requests, then revoke the capability:
 
@@ -236,6 +241,8 @@ For explicit user risk acceptance:
 Report delivered behavior, commit scope, role artifacts, verification commands, gate results, accepted risks, remaining issues, and branch or worktree location.
 
 After passing, offer local merge, push and PR, or preservation. Do not push, create a PR, merge, delete a branch, or remove a worktree without explicit authorization. Preserve a PR worktree until feedback is resolved by default.
+
+Keep user-facing progress at meaningful milestones: requirements frozen, a routed role completed or blocked, a candidate was frozen, a gate changed outcome, or user authority is required. Keep internal retries, ledger maintenance, and repeated unchanged status out of the conversation.
 
 ## Block conditions
 

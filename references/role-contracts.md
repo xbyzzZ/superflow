@@ -1,5 +1,7 @@
 # Role Contracts
 
+These contracts apply only after the user explicitly invokes Superflow in the current request. Project configuration, a matching task, or an existing run never activates them by itself.
+
 ## Main agent: product manager
 
 The main agent is the only user-facing, workflow-writing, and Git-writing role. It must:
@@ -86,7 +88,7 @@ A subagent returns exactly one Schema-valid JSON object:
 }
 ```
 
-Tester and reviewer also provide `candidateSha`. Every evidence item includes exact `type`, `status`, `reference`, and `detail`; browser and UI-prototype evidence also includes a provider matching project configuration. A tool name in prose is not successful evidence. Run `policy_check.py`, then inspect actual files and output.
+Tester and reviewer also provide `candidateSha`. Every evidence item includes exact `type`, `status`, `reference`, and `detail`; browser and UI-prototype evidence also includes a provider matching project configuration. Successful external evidence additionally records `collectorRole`, `collectorTaskId`, `collectorSession`, `artifactSha256`, and `adjudicatedBy`. When the main agent relays a browser session to the tester, `collectorRole` remains `product-manager` and `adjudicatedBy` is `tester`; the tester must never claim to have collected someone else's evidence. A tool name in prose is not successful evidence. Run `policy_check.py`, then inspect actual files and output.
 
 Every specialist result includes `memoryWriteRequests`, even when empty. A role may propose at most three durable, evidence-backed records for its own future executions. It never names a target role and never directly writes memory. Ingest requests only after the complete result passes Schema and policy checks.
 

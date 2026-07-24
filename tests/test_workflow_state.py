@@ -16,6 +16,21 @@ import project_config  # noqa: E402
 
 
 RUN_ID = "sf-20260724T010203Z-1234abcd"
+
+
+def contracted_task(task_id: str = "t1", dependencies: list[str] | None = None) -> dict:
+    return {
+        "id": task_id,
+        "title": "Implement feature",
+        "role": "frontend-developer",
+        "dependencies": dependencies or [],
+        "authorizedPaths": ["src/**", "tests/**"],
+        "acceptanceCriteria": ["The requested behavior is observable"],
+        "verificationCommands": ["python3 -m unittest"],
+        "observableResults": ["The focused regression test passes"],
+    }
+
+
 class WorkflowStateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -154,6 +169,8 @@ class WorkflowStateTests(unittest.TestCase):
             self.store.transition("ready")
         self.record_gate("review", "PASS")
         self.assertEqual(self.store.transition("ready")["status"], "ready")
+        gate_id = self.store.load()["gates"]["review"]["id"]
+        self.assertTrue((self.store.directory / "gates" / f"{gate_id}.json").is_file())
 
     def test_browser_gate_uses_shared_project_provider(self) -> None:
         self.advance_to_verifying()
@@ -167,6 +184,11 @@ class WorkflowStateTests(unittest.TestCase):
                 "provider": "codex-browser",
                 "reference": "Wrong browser",
                 "detail": "The project selection was not used",
+                "collectorRole": "tester",
+                "collectorTaskId": "t1",
+                "collectorSession": "browser-session-1",
+                "artifactSha256": "d" * 64,
+                "adjudicatedBy": "tester",
             }
         )
         with self.assertRaisesRegex(workflow_state.StateError, "chrome-mcp"):
@@ -193,6 +215,21 @@ class WorkflowStateTests(unittest.TestCase):
             browser=True,
         )
         self.assertEqual(state["gates"]["test"]["result"], "PASS")
+
+    def test_failed_tester_command_cannot_derive_pass(self) -> None:
+        result = self.gate_result("tester", "PASS", self.sha_one)
+        result["commandsRun"].append(
+            {
+                "command": "npm run typecheck",
+                "status": "failed",
+                "exitCode": 2,
+                "summary": "Type checking failed",
+            }
+        )
+        self.assertEqual(
+            workflow_state.WorkflowState._derive_gate_result(result),
+            "FAIL",
+        )
 
     def test_active_run_rejects_project_tool_reconfiguration(self) -> None:
         project_config.write_config(
@@ -388,8 +425,12 @@ class WorkflowStateTests(unittest.TestCase):
 
         with mock.patch.object(Path, "open", controlled_open):
             with self.assertRaises(OSError):
-                self.store.transition("preflight")
+                self.store.set_task("t1", "in_progress")
         self.assertEqual(self.store.load()["status"], "initialized")
+        plan = __import__("json").loads(
+            (self.store.directory / "plan.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(plan["tasks"][0]["status"], "pending")
 
     def test_symlinked_workflow_directory_is_rejected(self) -> None:
         project = Path(self.temporary.name) / "symlink-repo"
@@ -397,11 +438,15 @@ class WorkflowStateTests(unittest.TestCase):
         subprocess.run(["git", "-C", str(project), "init", "-q"], check=True)
         outside = Path(self.temporary.name) / "outside"
         outside.mkdir()
-        (project / ".codex").mkdir()
-        (project / ".codex" / "workflows").symlink_to(outside, target_is_directory=True)
         project_config.write_config(
             project,
             project_config.build_config("codex-browser", "penpot-mcp"),
+        )
+        common = workflow_state._git_common_directory(project)
+        (common / "superflow").mkdir()
+        (common / "superflow" / "workflows").symlink_to(
+            outside,
+            target_is_directory=True,
         )
         with self.assertRaises(workflow_state.StateError):
             workflow_state.WorkflowState.create(
@@ -410,6 +455,167 @@ class WorkflowStateTests(unittest.TestCase):
                 "sf-20260724T010206Z-1234abd0",
             )
         self.assertEqual(list(outside.iterdir()), [])
+
+    def test_workflow_ledger_is_shared_by_linked_worktrees(self) -> None:
+        linked = self.project.parent / f"{self.project.name}-linked-worktree"
+        branch = f"{self.project.name}-linked-test"
+        self.git("worktree", "add", "-q", "-b", branch, str(linked), "HEAD")
+        try:
+            linked_store = workflow_state.WorkflowState(linked, RUN_ID)
+
+            self.assertEqual(linked_store.directory, self.store.directory)
+            self.assertEqual(
+                linked_store.load()["revision"], self.store.load()["revision"]
+            )
+
+            linked_store.set_task("t1", "in_progress")
+            self.assertEqual(self.store.load()["plan"][0]["status"], "in_progress")
+            plan_snapshot = __import__("json").loads(
+                (self.store.directory / "plan.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(plan_snapshot["tasks"][0]["status"], "in_progress")
+        finally:
+            self.git("worktree", "remove", "--force", str(linked))
+
+    def test_new_cli_plan_requires_a_complete_acyclic_contract(self) -> None:
+        with self.assertRaisesRegex(workflow_state.StateError, "complete task contract"):
+            workflow_state.WorkflowState.create(
+                self.project,
+                ["Underspecified task"],
+                "sf-20260724T010207Z-1234abd1",
+                require_contract=True,
+            )
+
+    def test_task_ids_and_authorized_paths_cannot_escape_audit_storage(self) -> None:
+        for task_id in ("../escape", "nested/task"):
+            with self.subTest(task_id=task_id), self.assertRaises(
+                workflow_state.StateError
+            ):
+                workflow_state.WorkflowState.create(
+                    self.project,
+                    [{**contracted_task(), "id": task_id}],
+                    "sf-20260724T010214Z-1234abd8",
+                    require_contract=True,
+                )
+        for path in (".", ".git/config", ":(top)**"):
+            with self.subTest(path=path), self.assertRaises(
+                workflow_state.StateError
+            ):
+                workflow_state.WorkflowState.create(
+                    self.project,
+                    [{**contracted_task(), "authorizedPaths": [path]}],
+                    "sf-20260724T010215Z-1234abd9",
+                    require_contract=True,
+                )
+        with self.assertRaisesRegex(workflow_state.StateError, "cycle"):
+            workflow_state.WorkflowState.create(
+                self.project,
+                [
+                    contracted_task("t1", ["t2"]),
+                    contracted_task("t2", ["t1"]),
+                ],
+                "sf-20260724T010208Z-1234abd2",
+                require_contract=True,
+            )
+
+    def test_contracted_task_requires_brief_and_accepted_attempt(self) -> None:
+        store = workflow_state.WorkflowState.create(
+            self.project,
+            [contracted_task()],
+            "sf-20260724T010209Z-1234abd3",
+            require_contract=True,
+        )
+        store.register_worktree(self.project, "main", "HEAD")
+        with self.assertRaisesRegex(workflow_state.StateError, "accepted audited attempt"):
+            store.set_task("t1", "done")
+        snapshot = store._git_snapshot()
+        brief = {
+            "runId": store.run_id,
+            "taskId": "t1",
+            "role": "frontend-developer",
+            "workDirectory": str(self.project),
+            "objective": "Implement the frozen behavior",
+            "dependencies": [],
+            "authorizedPaths": ["src/**", "tests/**"],
+            "exclusions": [".git", ".codex"],
+            "acceptanceCriteria": ["The requested behavior is observable"],
+            "verificationCommands": ["python3 -m unittest"],
+            "observableResults": ["The focused regression test passes"],
+            "browserProvider": "chrome-mcp",
+            "uiPrototypeProvider": "penpot-mcp",
+            "beforeSnapshot": snapshot,
+            "resultSchema": "assets/schemas/agent-result.schema.json",
+        }
+        store.record_brief("t1", brief)
+        store.record_attempt(
+            "t1",
+            "frontend-developer",
+            "initial",
+            "rejected",
+            {"status": "failed"},
+            snapshot,
+            snapshot,
+            "The result omitted required evidence",
+        )
+        self.assertEqual(
+            len(list((store.directory / "attempts" / "t1").glob("*.json"))),
+            1,
+        )
+        with self.assertRaisesRegex(workflow_state.StateError, "accepted audited attempt"):
+            store.set_task("t1", "done")
+        store.record_attempt(
+            "t1",
+            "frontend-developer",
+            "retry",
+            "accepted",
+            {"status": "success"},
+            snapshot,
+            snapshot,
+            "The corrected result passed validation",
+        )
+        store.set_task("t1", "done")
+        routing = __import__("json").loads(
+            (store.directory / "routing.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(routing["assignments"][0]["task_id"], "t1")
+
+    def test_orphan_attempt_file_cannot_complete_a_task(self) -> None:
+        store = workflow_state.WorkflowState.create(
+            self.project,
+            [contracted_task()],
+            "sf-20260724T010212Z-1234abd6",
+            require_contract=True,
+        )
+        orphan_directory = store.directory / "attempts" / "t1"
+        orphan_directory.mkdir(parents=True)
+        (orphan_directory / "t1-001-deadbeef.json").write_text(
+            __import__("json").dumps(
+                {
+                    "attempt_id": "t1-001-deadbeef",
+                    "outcome": "accepted",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(workflow_state.StateError, "accepted audited attempt"):
+            store.set_task("t1", "done")
+
+    def test_task_cannot_start_before_dependencies_finish(self) -> None:
+        store = workflow_state.WorkflowState.create(
+            self.project,
+            [
+                {"id": "t1", "title": "First", "status": "pending"},
+                {
+                    **contracted_task("t2", ["t1"]),
+                    "title": "Second",
+                },
+            ],
+            "sf-20260724T010213Z-1234abd7",
+        )
+
+        with self.assertRaisesRegex(workflow_state.StateError, "dependencies"):
+            store.set_task("t2", "in_progress")
 
     def test_candidate_and_gate_require_correct_lifecycle(self) -> None:
         with self.assertRaises(workflow_state.StateError):
