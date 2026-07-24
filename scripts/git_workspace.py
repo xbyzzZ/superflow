@@ -185,6 +185,39 @@ def _assert_no_active_hooks(root: Path) -> None:
         raise GitSafetyError("Executable Git hooks detected; automatic Git writes are blocked: " + ", ".join(active))
 
 
+def _assert_no_waiting_dispatches(root: Path) -> None:
+    raw = Path(_checked(root, "rev-parse", "--git-common-dir"))
+    common = (raw if raw.is_absolute() else root / raw).resolve()
+    workflow_root = common / "superflow" / "workflows"
+    if not workflow_root.exists():
+        return
+    if workflow_root.is_symlink() or not workflow_root.is_dir():
+        raise GitSafetyError("The shared workflow ledger path is unsafe")
+    waiting: list[str] = []
+    for state_path in sorted(workflow_root.glob("*/state.json")):
+        if state_path.is_symlink() or not state_path.is_file():
+            raise GitSafetyError("A workflow state path is unsafe")
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise GitSafetyError(
+                "A workflow state is unreadable; Git writes are blocked"
+            ) from exc
+        dispatches = state.get("dispatches", {}) if isinstance(state, dict) else None
+        if not isinstance(dispatches, dict):
+            raise GitSafetyError(
+                "A workflow dispatch registry is malformed; Git writes are blocked"
+            )
+        for dispatch in dispatches.values():
+            if isinstance(dispatch, dict) and dispatch.get("status") == "waiting":
+                waiting.append(str(dispatch.get("dispatch_id", "unknown")))
+    if waiting:
+        raise GitSafetyError(
+            "Git writes are blocked while subagent dispatches are waiting: "
+            + ", ".join(waiting)
+        )
+
+
 def _is_authorized_staged_path(path: str, allowed: list[str]) -> bool:
     return any(path == item or path.startswith(item.rstrip("/") + "/") for item in allowed)
 
@@ -197,6 +230,7 @@ def commit(worktree: Path, message: str, paths: list[str]) -> dict[str, Any]:
         raise GitSafetyError("commit requires a message and at least one path")
     safe_paths = [_safe_relative_path(path) for path in paths]
     _assert_no_active_hooks(root)
+    _assert_no_waiting_dispatches(root)
     if _checked(root, "diff", "--cached", "--name-only"):
         raise GitSafetyError("The index already contains staged changes; mixed commits are refused")
     index_raw = _checked(root, "rev-parse", "--git-path", "index")
@@ -232,6 +266,7 @@ def cherry_pick(project: Path, commit_sha: str) -> dict[str, Any]:
     root = git_root(project)
     _assert_clean(root)
     _assert_no_active_hooks(root)
+    _assert_no_waiting_dispatches(root)
     if not re.fullmatch(r"[0-9a-fA-F]{7,64}", commit_sha):
         raise GitSafetyError("Invalid commit SHA format")
     object_type = _checked(root, "cat-file", "-t", commit_sha)

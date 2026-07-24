@@ -138,6 +138,15 @@ TASK_ROLES = {
     "tester",
     "code-reviewer",
 }
+DISPATCH_PHASES = {
+    "architect": {"architecting", "designing"},
+    "ui-designer": {"architecting", "designing"},
+    "frontend-developer": {"implementing", "fixing"},
+    "backend-developer": {"implementing", "fixing"},
+    "tester": {"verifying", "reviewing"},
+    "code-reviewer": {"verifying", "reviewing"},
+}
+TERMINAL_STATES = {"blocked", "cancelled", "finished"}
 TASK_CONTRACT_FIELDS = {
     "role",
     "dependencies",
@@ -349,6 +358,7 @@ class WorkflowState:
             "gates": {},
             "repair_rounds": {},
             "risks": [],
+            "dispatches": {},
             "created_at": now,
             "updated_at": now,
         }
@@ -390,6 +400,35 @@ class WorkflowState:
             raise StateError("active_task_id is not part of the current plan")
         if not set(state["repair_rounds"]).issubset(task_ids):
             raise StateError("repair_rounds contains an unknown task")
+        waiting_tasks: set[str] = set()
+        waiting_sessions: set[str] = set()
+        for dispatch_id, dispatch in state.get("dispatches", {}).items():
+            if dispatch.get("dispatch_id") != dispatch_id:
+                raise StateError("A dispatch key does not match its immutable ID")
+            task = next(
+                (item for item in state["plan"] if item["id"] == dispatch.get("task_id")),
+                None,
+            )
+            if task is None or task.get("role") != dispatch.get("role"):
+                raise StateError("A dispatch does not match its frozen task contract")
+            waiting = dispatch.get("status") == "waiting"
+            if waiting and (
+                dispatch.get("completed_at") is not None
+                or dispatch.get("attempt_id") is not None
+            ):
+                raise StateError("A waiting dispatch cannot have a completion record")
+            if not waiting and (
+                dispatch.get("completed_at") is None
+                or dispatch.get("attempt_id") is None
+            ):
+                raise StateError("A completed dispatch lacks its attempt binding")
+            if waiting and dispatch["task_id"] in waiting_tasks:
+                raise StateError("A task has more than one waiting dispatch")
+            if waiting and dispatch["session_id"] in waiting_sessions:
+                raise StateError("A session is bound to more than one waiting dispatch")
+            if waiting:
+                waiting_tasks.add(dispatch["task_id"])
+                waiting_sessions.add(dispatch["session_id"])
         pending = state.get("pending_repair")
         if pending is not None:
             if pending.get("task_id") not in task_ids:
@@ -409,6 +448,8 @@ class WorkflowState:
             raise StateError("The ready state requires valid PASS results from both gates")
         if status == "risk_accepted" and not self._risks_cover_failures(state):
             raise StateError("The risk_accepted state requires valid risk acceptance")
+        if status in TERMINAL_STATES and waiting_tasks:
+            raise StateError("A terminal state cannot retain waiting dispatches")
         if status == "finished":
             if active is not None or any(item["status"] != "done" for item in state["plan"]):
                 raise StateError("The finished state does not match plan completion")
@@ -653,6 +694,103 @@ class WorkflowState:
             raise
         return {"path": str(path), "digest": digest}
 
+    @staticmethod
+    def _waiting_dispatches(state: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            dispatch
+            for dispatch in state.get("dispatches", {}).values()
+            if dispatch.get("status") == "waiting"
+        ]
+
+    def _ensure_no_waiting_dispatches(
+        self,
+        state: dict[str, Any],
+        operation: str,
+    ) -> None:
+        waiting = self._waiting_dispatches(state)
+        if waiting:
+            identifiers = ", ".join(
+                sorted(item["dispatch_id"] for item in waiting)
+            )
+            raise StateError(
+                f"{operation} is blocked while subagent dispatches are waiting: "
+                f"{identifiers}"
+            )
+
+    def record_dispatch(
+        self,
+        task_id: str,
+        role: str,
+        session_id: str,
+        before: Any,
+    ) -> dict[str, Any]:
+        state = self.load()
+        self._require_mutable(state)
+        self._ensure_tool_config_current(state)
+        task = next((item for item in state["plan"] if item["id"] == task_id), None)
+        if task is None or task.get("role") != role or role not in DISPATCH_PHASES:
+            raise StateError("The dispatch role does not match a specialist task")
+        if state["status"] not in DISPATCH_PHASES[role]:
+            raise StateError("The workflow phase does not permit this role dispatch")
+        if task["status"] != "in_progress":
+            raise StateError("The dispatched task must already be in progress")
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise StateError("A dispatch requires the actual subagent session identifier")
+        if not isinstance(before, dict) or before != self._git_snapshot():
+            raise StateError("The dispatch snapshot must match the current worktree")
+        by_id = {item["id"]: item for item in state["plan"]}
+        incomplete = [
+            dependency
+            for dependency in task.get("dependencies", [])
+            if by_id[dependency]["status"] != "done"
+        ]
+        if incomplete:
+            raise StateError(
+                "Task dependencies are incomplete: " + ", ".join(incomplete)
+            )
+        if any(
+            item.get("task_id") == task_id or item.get("session_id") == session_id
+            for item in self._waiting_dispatches(state)
+        ):
+            raise StateError("The task or subagent session already has a waiting dispatch")
+        brief_path = self.directory / "briefs" / f"{task_id}.json"
+        if not brief_path.is_file():
+            raise StateError("Record the immutable task brief before dispatch")
+        brief = json.loads(brief_path.read_text(encoding="utf-8"))
+        if Path(brief.get("workDirectory", "")).resolve() != self.project:
+            raise StateError("The task brief workDirectory does not match this worktree")
+        worktrees = json.loads(
+            (self.directory / "worktrees.json").read_text(encoding="utf-8")
+        ).get("worktrees", [])
+        if not any(Path(item.get("path", "")).resolve() == self.project for item in worktrees):
+            raise StateError("The dispatch worktree is not registered in the run ledger")
+        dispatch_id = secrets.token_hex(8)
+        dispatch = {
+            "dispatch_id": dispatch_id,
+            "task_id": task_id,
+            "role": role,
+            "session_id": session_id.strip(),
+            "status": "waiting",
+            "worktree": str(self.project),
+            "before_digest": self._digest(before),
+            "brief_digest": self._digest(brief),
+            "started_at": _now(),
+            "completed_at": None,
+            "attempt_id": None,
+        }
+        state.setdefault("dispatches", {})[dispatch_id] = dispatch
+        self._save(
+            state,
+            "record_dispatch",
+            {
+                "dispatch_id": dispatch_id,
+                "task_id": task_id,
+                "role": role,
+                "session_id": session_id.strip(),
+            },
+        )
+        return dispatch
+
     def record_attempt(
         self,
         task_id: str,
@@ -663,6 +801,7 @@ class WorkflowState:
         before: Any,
         after: Any,
         reason: str,
+        dispatch_id: str | None = None,
     ) -> dict[str, Any]:
         state = self.load()
         self._require_mutable(state)
@@ -679,8 +818,69 @@ class WorkflowState:
             or not isinstance(after, dict)
         ):
             raise StateError("Attempt result and Git snapshots must be JSON objects")
-        if not reason.strip():
+        if not isinstance(reason, str) or not reason.strip():
             raise StateError("An attempt requires a reason")
+        dispatches = state.get("dispatches", {})
+        dispatch = dispatches.get(dispatch_id) if dispatch_id is not None else None
+        if not isinstance(dispatch, dict):
+            raise StateError("The attempt requires a recorded dispatch")
+        if (
+            dispatch.get("status") != "waiting"
+            or dispatch.get("task_id") != task_id
+            or dispatch.get("role") != role
+            or Path(dispatch.get("worktree", "")).resolve() != self.project
+        ):
+            raise StateError("The attempt does not match a waiting dispatch")
+        if self._digest(before) != dispatch.get("before_digest"):
+            raise StateError("The attempt before snapshot does not match its dispatch")
+        if after != self._git_snapshot():
+            raise StateError("The attempt after snapshot does not match the current worktree")
+        if result.get("dispatchId") not in {None, dispatch_id}:
+            raise StateError("The result dispatchId does not match the recorded dispatch")
+        checked: dict[str, Any] | None = None
+        if outcome == "accepted":
+            if result.get("dispatchId") != dispatch_id or result.get("status") != "success":
+                raise StateError(
+                    "An accepted attempt requires a successful result bound to its dispatch"
+                )
+            ui = role == "ui-designer"
+            browser = any(
+                isinstance(item, dict) and item.get("type") == "browser"
+                for item in result.get("evidence", [])
+            )
+            checked = check_policy(
+                result,
+                task["authorizedPaths"],
+                before,
+                after,
+                expected_role=role,
+                expected_task=task_id,
+                expected_candidate=(
+                    state.get("candidate_sha")
+                    if role in {"tester", "code-reviewer"}
+                    else None
+                ),
+                ui=ui,
+                browser=browser,
+                code=role
+                in {"frontend-developer", "backend-developer", "tester"},
+                expected_ui_provider=(
+                    state["tool_config"]["ui_prototype"]["provider"] if ui else None
+                ),
+                expected_browser_provider=(
+                    state["tool_config"]["browser"]["provider"] if browser else None
+                ),
+                expected_dispatch=dispatch_id,
+            )
+            if not checked["ok"]:
+                raise StateError(
+                    "An accepted attempt must pass result policy validation: "
+                    + json.dumps(
+                        checked["violations"],
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                )
         brief_path = self.directory / "briefs" / f"{task_id}.json"
         if not brief_path.is_file():
             raise StateError("Record the immutable task brief before an attempt")
@@ -703,10 +903,14 @@ class WorkflowState:
             "before": before,
             "after": after,
             "result": result,
+            "policy": checked,
             "recorded_at": _now(),
         }
         path = attempt_directory / f"{attempt_id}.json"
         _atomic_write(path, attempt)
+        dispatch["status"] = outcome
+        dispatch["completed_at"] = attempt["recorded_at"]
+        dispatch["attempt_id"] = attempt_id
         try:
             self._save(
                 state,
@@ -717,6 +921,7 @@ class WorkflowState:
                     "role": role,
                     "kind": kind,
                     "outcome": outcome,
+                    "dispatch_id": dispatch_id,
                 },
             )
         except (OSError, StateError):
@@ -790,8 +995,8 @@ class WorkflowState:
     def transition(self, target: str, task_id: str | None = None) -> dict[str, Any]:
         state = self.load()
         source = state["status"]
-        terminal = {"blocked", "cancelled", "finished"}
-        emergency = target in {"blocked", "cancelled"} and source not in terminal
+        emergency = target in {"blocked", "cancelled"} and source not in TERMINAL_STATES
+        self._ensure_no_waiting_dispatches(state, "Workflow transition")
         if not emergency:
             self._ensure_tool_config_current(state)
         if not emergency and target not in TRANSITIONS.get(source, set()):
@@ -849,6 +1054,7 @@ class WorkflowState:
         state = self.load()
         self._require_mutable(state)
         self._ensure_tool_config_current(state)
+        self._ensure_no_waiting_dispatches(state, "Task status update")
         task = next((item for item in state["plan"] if item["id"] == task_id), None)
         if task is None:
             raise StateError("The plan item does not exist")
@@ -880,6 +1086,7 @@ class WorkflowState:
         state = self.load()
         self._require_mutable(state)
         self._ensure_tool_config_current(state)
+        self._ensure_no_waiting_dispatches(state, "Candidate update")
         if state["status"] not in {"implementing", "verifying", "reviewing", "fixing"}:
             raise StateError("A candidate can be frozen only during implementation or verification")
         sha = self._resolve_candidate(sha)
@@ -964,6 +1171,7 @@ class WorkflowState:
         state = self.load()
         self._require_mutable(state)
         self._ensure_tool_config_current(state)
+        self._ensure_no_waiting_dispatches(state, "Gate recording")
         if state["status"] not in {"verifying", "reviewing"}:
             raise StateError("A gate can be recorded only during verifying or reviewing")
         if gate not in GATES:
@@ -977,6 +1185,33 @@ class WorkflowState:
         if after != fresh:
             raise StateError("The after Git snapshot does not match the current repository state")
         expected_role = "tester" if gate == "test" else "code-reviewer"
+        task = next(item for item in state["plan"] if item["id"] == task_id)
+        if "role" in task:
+            dispatch_id = agent_result.get("dispatchId")
+            dispatch = state.get("dispatches", {}).get(dispatch_id)
+            if (
+                not isinstance(dispatch, dict)
+                or dispatch.get("status") != "accepted"
+                or dispatch.get("task_id") != task_id
+                or dispatch.get("role") != expected_role
+            ):
+                raise StateError(
+                    "A contracted gate requires the accepted result of its recorded dispatch"
+                )
+            attempt_path = (
+                self.directory
+                / "attempts"
+                / task_id
+                / f"{dispatch['attempt_id']}.json"
+            )
+            try:
+                attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise StateError("The gate dispatch attempt artifact is unavailable") from exc
+            if attempt.get("result_digest") != self._digest(agent_result):
+                raise StateError(
+                    "The gate result differs from the accepted dispatch attempt"
+                )
         checked = check_policy(
             agent_result,
             allowed_paths,
@@ -990,6 +1225,7 @@ class WorkflowState:
             expected_browser_provider=(
                 state["tool_config"]["browser"]["provider"] if browser else None
             ),
+            expected_dispatch=agent_result.get("dispatchId"),
         )
         if not checked["ok"]:
             raise StateError(
@@ -1079,6 +1315,7 @@ class WorkflowState:
         state = self.load()
         self._require_mutable(state)
         self._ensure_tool_config_current(state)
+        self._ensure_no_waiting_dispatches(state, "Risk recording")
         current = state["gates"].get(gate)
         if not current or not current.get("valid") or current.get("result") != "FAIL":
             raise StateError("Risk can be accepted only for a failed gate on the current candidate")
@@ -1134,6 +1371,7 @@ class WorkflowState:
     def finish(self) -> dict[str, Any]:
         state = self.load()
         self._ensure_tool_config_current(state)
+        self._ensure_no_waiting_dispatches(state, "Workflow finish")
         if state["status"] not in {"ready", "risk_accepted"}:
             raise StateError("The workflow has not met its finish conditions")
         if any(task["status"] != "done" for task in state["plan"]):
@@ -1197,6 +1435,12 @@ def _build_parser() -> argparse.ArgumentParser:
     brief.add_argument("run_id")
     brief.add_argument("task_id")
     brief.add_argument("--brief", required=True, type=_json_argument)
+    dispatch = sub.add_parser("record-dispatch")
+    dispatch.add_argument("run_id")
+    dispatch.add_argument("task_id")
+    dispatch.add_argument("role", choices=sorted(DISPATCH_PHASES))
+    dispatch.add_argument("--session-id", required=True)
+    dispatch.add_argument("--before", required=True, type=_json_argument)
     attempt = sub.add_parser("record-attempt")
     attempt.add_argument("run_id")
     attempt.add_argument("task_id")
@@ -1207,6 +1451,7 @@ def _build_parser() -> argparse.ArgumentParser:
     attempt.add_argument("--before", required=True, type=_json_argument)
     attempt.add_argument("--after", required=True, type=_json_argument)
     attempt.add_argument("--reason", required=True)
+    attempt.add_argument("--dispatch-id", required=True)
     return parser
 
 
@@ -1247,6 +1492,13 @@ def main(argv: list[str] | None = None) -> int:
                 result = store.set_task(args.task_id, args.status)
             elif args.command == "record-brief":
                 result = store.record_brief(args.task_id, args.brief)
+            elif args.command == "record-dispatch":
+                result = store.record_dispatch(
+                    args.task_id,
+                    args.role,
+                    args.session_id,
+                    args.before,
+                )
             elif args.command == "record-attempt":
                 result = store.record_attempt(
                     args.task_id,
@@ -1257,6 +1509,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.before,
                     args.after,
                     args.reason,
+                    args.dispatch_id,
                 )
             else:
                 result = store.finish()

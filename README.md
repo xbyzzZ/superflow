@@ -18,6 +18,7 @@ Multi-agent coding often fails at the boundaries: agents change files outside th
 Key properties:
 
 - One main agent owns user communication, workflow state, approvals, and Git writes.
+- A recorded specialist dispatch puts the main agent into coordination-only waiting, preventing duplicate implementation, testing, review, browser work, and Git progression.
 - Six project-level agents are routed only when their expertise is required.
 - Every agent returns a strict JSON result validated against a bundled Schema.
 - Test and review gates must approve the same real Git commit.
@@ -117,11 +118,12 @@ The main agent performs these core steps:
 3. Clarify requirements and define observable acceptance criteria.
 4. Route only the required specialist roles.
 5. Create an integration worktree and optional independent task worktrees.
-6. Validate each agent result, actual diff, tool evidence, and Git snapshot.
-7. Commit only explicitly authorized paths.
-8. Freeze the integration worktree’s real HEAD as the candidate.
-9. Record tester and reviewer results against the same candidate SHA.
-10. Finish only after every planned task is done and both gates pass, or after the user explicitly accepts each current failed gate.
+6. Record each dispatch, pass its immutable ID to the specialist, and wait without overlapping the assigned work.
+7. Bind each returned result to its dispatch, then validate the result, actual diff, tool evidence, and Git snapshot.
+8. Commit only explicitly authorized paths.
+9. Freeze the integration worktree’s real HEAD as the candidate.
+10. Record tester and reviewer results against the same candidate SHA.
+11. Finish only after every planned task is done and both gates pass, or after the user explicitly accepts each current failed gate.
 
 ## Candidate and Dual-Gate Approval
 
@@ -178,7 +180,7 @@ attempts/
 gates/
 ~~~
 
-Each planned task freezes its role, dependencies, authorized paths, acceptance criteria, exact verification commands, and observable results. Briefs, dispatch routing, worktree registrations, every accepted or rejected attempt, and candidate-bound gates are retained as audit artifacts. `state.json` is validated against the bundled Schema and cross-field invariants. `events.jsonl` is an append-only revision chain with state hashes and event-to-event hashes. Writes use a process lock and revision compare-and-swap to reject stale concurrent updates.
+Each planned task freezes its role, dependencies, authorized paths, acceptance criteria, exact verification commands, and observable results. Briefs, dispatch routing, worktree registrations, every accepted or rejected attempt, and candidate-bound gates are retained as audit artifacts. A waiting dispatch is bound to its task, role, worktree, brief, snapshot, and real subagent session; state progression and Git writes remain locked until its result is recorded. `state.json` is validated against the bundled Schema and cross-field invariants. `events.jsonl` is an append-only revision chain with state hashes and event-to-event hashes. Writes use a process lock and revision compare-and-swap to reject stale concurrent updates.
 
 ## Role-Isolated Memory
 
@@ -256,7 +258,7 @@ Run the complete test suite:
 python3 -m unittest discover -s tests -v
 ~~~
 
-The test suite covers project-level tool selection and drift rejection, role-isolated memory, built-in professional guides, dual-gate integrity, candidate invalidation, repair limits, state recovery, event tampering, Git path safety, hook blocking, and policy enforcement.
+The test suite covers project-level tool selection and drift rejection, dispatch-bound waiting and result identity, role-isolated memory, built-in professional guides, dual-gate integrity, candidate invalidation, repair limits, state recovery, event tampering, Git path safety, hook blocking, and policy enforcement.
 
 Validate the Skill metadata with the Codex Skill Creator validator:
 

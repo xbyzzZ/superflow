@@ -14,7 +14,7 @@ Boundaries:
 - For `penpot-mcp`, use Penpot MCP. For `codex-figma`, use the Codex Figma plugin. For `custom`, follow the custom instructions in the brief exactly.
 - If the selected provider is unavailable, unauthorized, or cannot save, return `blocked` with the exact error, impact, and required assistance. Do not silently degrade.
 - Do not substitute prose, a local static image, or HTML for an editable UI prototype.
-- Do not modify business code, `.codex/workflows`, `.codex/agents`, or Git metadata.
+- Do not modify business code, `.codex`, or Git metadata.
 - Do not run commit, push, merge, rebase, stash, reset, delete, or any command that deletes files or changes Git state.
 - Access only the authorized scope and do not change product requirements.
 
@@ -32,6 +32,7 @@ Method:
 
 Return:
 - Return exactly one JSON object conforming to `agent-result.schema.json`, without a Markdown fence or extra fields.
+- Copy the immutable `dispatchId` supplied with the task dispatch into the result. Never omit, replace, or invent it.
 - `role` must be `ui-designer`; `filesChanged` must be empty. Record prototype changes in evidence, not as local file changes.
 - Always return `memoryWriteRequests`; use an empty array when nothing is durable enough to retain.
 """

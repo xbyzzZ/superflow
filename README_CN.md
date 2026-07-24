@@ -15,6 +15,7 @@ Superflow 是一个面向 Codex 的端到端软件交付工作流 Skill，由一
 主要能力：
 
 - 主代理独占用户沟通、工作流状态、审批和 Git 写权限。
+- 专业子代理被正式派发后，主代理会进入纯协调等待态，不能重复执行开发、测试、审查、浏览器验收或 Git 推进。
 - 六类项目级 Agent 按任务需要路由，不强制走固定流水线。
 - 每个 Agent 返回符合 JSON Schema 的严格结构化结果。
 - 测试和代码审查必须审批同一个真实 Git commit。
@@ -114,11 +115,12 @@ python3 <superflow>/scripts/init_project.py --project "$PWD" \
 3. 澄清需求并定义可观察验收标准。
 4. 只调度当前任务需要的专业角色。
 5. 创建 integration worktree，并按需创建互不冲突的任务 worktree。
-6. 校验 Agent 结果、实际 diff、工具证据和 Git snapshot。
-7. 只提交明确授权的路径。
-8. 将 integration worktree 的真实 HEAD 冻结为 candidate。
-9. 让 tester 和 code-reviewer 针对同一 candidate SHA 给出门禁结果。
-10. 所有计划任务完成且双门通过后才结束；失败门禁只能由用户逐项明确接受风险。
+6. 记录每次派发，把不可变派发 ID 交给专业子代理，然后等待且不重叠执行已分配工作。
+7. 将返回结果绑定到对应派发后，再校验 Agent 结果、实际 diff、工具证据和 Git snapshot。
+8. 只提交明确授权的路径。
+9. 将 integration worktree 的真实 HEAD 冻结为 candidate。
+10. 让 tester 和 code-reviewer 针对同一 candidate SHA 给出门禁结果。
+11. 所有计划任务完成且双门通过后才结束；失败门禁只能由用户逐项明确接受风险。
 
 ## Candidate 与双门审批
 
@@ -175,7 +177,7 @@ attempts/
 gates/
 ~~~
 
-每个计划任务都会冻结角色、依赖、授权路径、验收标准、精确验证命令和可观察结果。任务 brief、调度记录、worktree 注册信息、每次被接受或拒绝的尝试以及绑定 candidate 的 gate 都会作为审计产物保留。state.json 同时接受 JSON Schema 和跨字段不变量校验。events.jsonl 是带状态 hash 和事件间 hash 的追加式 revision 链。写入使用进程锁和 revision compare-and-swap，陈旧并发更新会被拒绝。
+每个计划任务都会冻结角色、依赖、授权路径、验收标准、精确验证命令和可观察结果。任务 brief、调度记录、worktree 注册信息、每次被接受或拒绝的尝试以及绑定 candidate 的 gate 都会作为审计产物保留。等待中的派发会绑定任务、角色、worktree、brief、执行前快照和真实子代理会话；结果被记录前，状态推进和 Git 写入持续锁定。state.json 同时接受 JSON Schema 和跨字段不变量校验。events.jsonl 是带状态 hash 和事件间 hash 的追加式 revision 链。写入使用进程锁和 revision compare-and-swap，陈旧并发更新会被拒绝。
 
 ## 角色隔离记忆
 
@@ -253,7 +255,7 @@ GitHub CI 会在 push 和 pull request 时运行完整测试并验证发布包�
 python3 -m unittest discover -s tests -v
 ~~~
 
-当前实现状态：**118 项测试全部通过**，覆盖显式调用门、项目级工具选择与漂移拦截、共享工作流账本、完整任务合同与依赖、不可变尝试审计、外部证据来源、角色隔离记忆、英文发布边界、发布包可复现性、作者元数据、双门完整性、candidate 失效、返工上限、状态恢复、事件篡改、Git 路径安全、hook 阻塞和策略检查等对抗场景。
+当前实现状态：**122 项测试全部通过**，覆盖显式调用门、派发绑定等待与结果身份校验、项目级工具选择与漂移拦截、共享工作流账本、完整任务合同与依赖、不可变尝试审计、外部证据来源、角色隔离记忆、英文发布边界、发布包可复现性、作者元数据、双门完整性、candidate 失效、返工上限、状态恢复、事件篡改、Git 路径安全、hook 阻塞和策略检查等对抗场景。
 
 使用 Codex Skill Creator 校验 Skill 元数据：
 

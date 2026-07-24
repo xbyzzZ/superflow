@@ -92,6 +92,10 @@
       "type": "array",
       "items": {"$ref": "#/$defs/risk"}
     },
+    "dispatches": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/dispatch"}
+    },
     "created_at": {"type": "string", "format": "date-time"},
     "updated_at": {"type": "string", "format": "date-time"}
   },
@@ -198,6 +202,59 @@
         "accepted_by": {"type": "string", "minLength": 1},
         "reason": {"type": "string", "minLength": 1},
         "accepted_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "dispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dispatch_id",
+        "task_id",
+        "role",
+        "session_id",
+        "status",
+        "worktree",
+        "before_digest",
+        "brief_digest",
+        "started_at",
+        "completed_at",
+        "attempt_id"
+      ],
+      "properties": {
+        "dispatch_id": {"type": "string", "pattern": "^[a-f0-9]{16}$"},
+        "task_id": {"type": "string", "minLength": 1},
+        "role": {
+          "type": "string",
+          "enum": [
+            "architect",
+            "ui-designer",
+            "frontend-developer",
+            "backend-developer",
+            "tester",
+            "code-reviewer"
+          ]
+        },
+        "session_id": {"type": "string", "minLength": 1},
+        "status": {
+          "type": "string",
+          "enum": ["waiting", "accepted", "rejected", "blocked"]
+        },
+        "worktree": {"type": "string", "minLength": 1},
+        "before_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "brief_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "started_at": {"type": "string", "format": "date-time"},
+        "completed_at": {
+          "oneOf": [
+            {"type": "string", "format": "date-time"},
+            {"type": "null"}
+          ]
+        },
+        "attempt_id": {
+          "oneOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "null"}
+          ]
+        }
       }
     },
     "pendingRepair": {

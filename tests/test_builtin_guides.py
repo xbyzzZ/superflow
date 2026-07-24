@@ -26,6 +26,27 @@ class BuiltinGuidesTests(unittest.TestCase):
         self.assertIn("allow_implicit_invocation: false", agent_metadata)
         self.assertNotIn("allow_implicit_invocation: true", agent_metadata)
 
+    def test_dispatch_wait_prevents_main_agent_overlap(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        role_contracts = (ROOT / "references" / "role-contracts.md").read_text(
+            encoding="utf-8"
+        )
+        state_machine = (
+            ROOT / "references" / "workflow-state-machine.md"
+        ).read_text(encoding="utf-8")
+        for content in (skill, role_contracts, state_machine):
+            self.assertIn("coordination-only", content)
+            self.assertIn("waiting", content)
+        self.assertIn("record-dispatch", skill)
+        self.assertIn("--dispatch-id", skill)
+        self.assertIn("commits, and cherry-picks fail closed", state_machine)
+        for path in sorted((ROOT / "assets" / "agent-templates").glob("*.toml")):
+            with self.subTest(template=path.name):
+                self.assertIn(
+                    "immutable `dispatchId` supplied with the task dispatch",
+                    path.read_text(encoding="utf-8"),
+                )
+
     """Verify that built-in expertise never degrades into external Skill dependencies."""
 
     def test_skill_directly_links_all_builtin_guides(self) -> None:

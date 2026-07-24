@@ -47,6 +47,17 @@ superflow/workflows/<run-id>/
 
 Every linked worktree resolves the same directory; never copy ledger files between worktrees. Only the main agent calls the state script. A subagent `workflowUpdateRequest` is a proposal.
 
+`state.json.dispatches` is the current dispatch registry. Each entry binds an immutable dispatch ID to a task, role, worktree, brief digest, pre-execution snapshot, and actual subagent session or task handle:
+
+```text
+brief recorded
+  -> dispatch waiting
+  -> result received
+  -> accepted | rejected | blocked attempt
+```
+
+While any dispatch is `waiting`, the main agent is coordination-only. State transitions, task updates, candidate changes, gate or risk recording, finish, commits, and cherry-picks fail closed. Project execution and professional role work are also prohibited by contract. Additional independent dispatches may be recorded before the main agent waits.
+
 A new run freezes project browser and UI-provider selection in `state.json.tool_config`. If project configuration changes, the old run may only become `blocked` or `cancelled`.
 
 ## Commands
@@ -59,8 +70,12 @@ python3 scripts/workflow_state.py --project <repo> transition <run-id> preflight
 python3 scripts/workflow_state.py --project <repo> set-task <run-id> T1 in_progress
 python3 scripts/workflow_state.py --project <repo> record-brief \
   <run-id> T1 --brief brief.json
+python3 scripts/workflow_state.py --project <repo> record-dispatch \
+  <run-id> T1 backend-developer \
+  --session-id <reserved-session-id> --before before.json
 python3 scripts/workflow_state.py --project <repo> record-attempt \
   <run-id> T1 backend-developer initial accepted \
+  --dispatch-id <dispatch-id> \
   --agent-result result.json --before before.json --after after.json \
   --reason 'Schema and policy checks passed'
 python3 scripts/workflow_state.py --project <repo> set-candidate <run-id> <sha>
@@ -103,9 +118,12 @@ Fix only confirmed findings, freeze a new SHA, and rerun both gates.
 On resume:
 
 1. validate `state.json` against the complete `events.jsonl` hash chain with revision consistency;
-2. verify worktree, branch, HEAD, and `worktrees.json`;
-3. verify Agent template versions, required tools, and `state.json.tool_config`;
-4. continue from the first unfinished task without redispatching completed work;
-5. validate Schema, cross-field invariants, event hashes, and safe paths.
+2. inspect every `waiting` dispatch and reconnect to its recorded subagent session or task handle;
+3. wait for live dispatched work instead of redispatching it or taking it over;
+4. only after a dispatch is confirmed terminated, record a `blocked` attempt and then decide whether to retry;
+5. verify worktree, branch, HEAD, and `worktrees.json`;
+6. verify Agent template versions, required tools, and `state.json.tool_config`;
+7. continue from the first unfinished task without redispatching completed work;
+8. validate Schema, cross-field invariants, event hashes, and safe paths.
 
 When files, Git state, and ledger disagree, enter `blocked`; never guess recovery.

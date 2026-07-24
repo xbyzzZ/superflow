@@ -191,6 +191,7 @@ def check_policy(
     code: bool = False,
     expected_ui_provider: str | None = None,
     expected_browser_provider: str | None = None,
+    expected_dispatch: str | None = None,
 ) -> dict[str, Any]:
     """Return a fail-closed policy-check result."""
     violations: list[dict[str, str]] = []
@@ -222,6 +223,8 @@ def check_policy(
         add("identity", "The agent taskId does not match the assignment")
     if expected_task is None:
         add("identity_context", "The policy check requires the taskId assigned by the primary agent")
+    if expected_dispatch is not None and result.get("dispatchId") != expected_dispatch:
+        add("identity", "The agent dispatchId does not match the recorded dispatch")
     if result.get("status") not in STATUSES:
         add("status", "Invalid agent status")
 
@@ -388,6 +391,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--role", required=True, choices=sorted(ROLES))
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--candidate-sha")
+    parser.add_argument("--dispatch-id")
     parser.add_argument("--project", type=Path, default=Path.cwd())
     parser.add_argument("--ui", action="store_true")
     parser.add_argument("--browser", action="store_true")
@@ -412,6 +416,7 @@ def main(argv: list[str] | None = None) -> int:
             args.code,
             config["ui_prototype"]["provider"] if args.ui and config else None,
             config["browser"]["provider"] if args.browser and config else None,
+            args.dispatch_id,
         )
     except (json.JSONDecodeError, OSError, ProjectConfigError) as exc:
         checked = {"ok": False, "violations": [{"code": "input", "message": str(exc)}]}

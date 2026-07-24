@@ -128,6 +128,68 @@ class GitWorkspaceTests(unittest.TestCase):
             git(self.root, "branch", "--format=%(refname:short)").splitlines(),
         )
 
+    def test_commit_is_blocked_while_a_subagent_dispatch_is_waiting(self) -> None:
+        project_config.write_config(
+            self.root,
+            project_config.build_config("codex-browser", "penpot-mcp"),
+        )
+        run_id = "sf-20260724T010218Z-1234abdc"
+        task = {
+            "id": "t1",
+            "title": "Implement feature",
+            "role": "frontend-developer",
+            "dependencies": [],
+            "authorizedPaths": ["feature.txt"],
+            "acceptanceCriteria": ["The feature is implemented"],
+            "verificationCommands": ["python3 -m unittest"],
+            "observableResults": ["The focused test passes"],
+        }
+        store = workflow_state.WorkflowState.create(
+            self.root,
+            [task],
+            run_id,
+            require_contract=True,
+        )
+        store.register_worktree(self.root, "main", "HEAD")
+        for status in ("preflight", "discovery", "requirements_ready", "planned"):
+            store.transition(status)
+        store.transition("implementing", "t1")
+        snapshot = store._git_snapshot()
+        store.record_brief(
+            "t1",
+            {
+                "runId": run_id,
+                "taskId": "t1",
+                "role": "frontend-developer",
+                "workDirectory": str(self.root),
+                "objective": "Implement the frozen behavior",
+                "dependencies": [],
+                "authorizedPaths": ["feature.txt"],
+                "exclusions": [".git", ".codex"],
+                "acceptanceCriteria": ["The feature is implemented"],
+                "verificationCommands": ["python3 -m unittest"],
+                "observableResults": ["The focused test passes"],
+                "browserProvider": "codex-browser",
+                "uiPrototypeProvider": "penpot-mcp",
+                "beforeSnapshot": snapshot,
+                "resultSchema": "assets/schemas/agent-result.schema.json",
+            },
+        )
+        store.record_dispatch(
+            "t1",
+            "frontend-developer",
+            "agent-session-commit-block",
+            snapshot,
+        )
+        (self.root / "feature.txt").write_text("feature\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(git_workspace.GitSafetyError, "waiting"):
+            git_workspace.commit(
+                self.root,
+                "This commit must be blocked",
+                ["feature.txt"],
+            )
+
     def test_local_cherry_pick(self) -> None:
         created = git_workspace.create_worktree(self.root, "run-pick")
         worktree = Path(created["worktree"])

@@ -1,7 +1,7 @@
 interface:
   display_name: "Superflow Delivery Workflow"
   short_description: "Explicitly invoked delivery orchestration with six specialist agents."
-  default_prompt: "Use $superflow only when I explicitly invoke it in my current request. Then orchestrate the required architecture, UI design, implementation, review, testing, and verified delivery roles."
+  default_prompt: "Use $superflow only when I explicitly invoke it in my current request. Then orchestrate the required roles and wait for every recorded specialist dispatch before overlapping work or workflow progression."
 
 policy:
   allow_implicit_invocation: false

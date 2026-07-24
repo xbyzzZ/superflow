@@ -128,6 +128,61 @@ class WorkflowStateTests(unittest.TestCase):
             "candidateSha": sha,
         }
 
+    def developer_result(self, dispatch_id: str, task_id: str = "t1") -> dict:
+        return {
+            "role": "frontend-developer",
+            "taskId": task_id,
+            "dispatchId": dispatch_id,
+            "status": "success",
+            "summary": "Implemented and verified the assigned task",
+            "filesChanged": [],
+            "commandsRun": [
+                {
+                    "command": "python3 -m unittest",
+                    "status": "passed",
+                    "exitCode": 0,
+                    "summary": "Focused tests passed",
+                }
+            ],
+            "verification": {
+                "status": "passed",
+                "checks": [
+                    {
+                        "name": "acceptance",
+                        "status": "passed",
+                        "details": "The assigned behavior was verified",
+                    }
+                ],
+                "verdicts": {
+                    "spec": "pass",
+                    "correctness": "pass",
+                    "consistency": "pass",
+                },
+            },
+            "findings": [],
+            "evidence": [
+                {
+                    "type": "file",
+                    "status": "success",
+                    "reference": "tests/result.txt",
+                    "detail": "The focused result was inspected",
+                },
+                {
+                    "type": "codegraph",
+                    "status": "failure",
+                    "reference": "CodeGraph unavailable",
+                    "detail": "The fallback reason was recorded before precise file reading",
+                }
+            ],
+            "memoryWriteRequests": [],
+            "workflowUpdateRequest": {
+                "action": "complete-task",
+                "targetId": task_id,
+                "reason": "The assigned work passed verification",
+            },
+            "concerns": [],
+        }
+
     def record_gate(
         self, gate: str, verdict: str, sha: str | None = None, task_id: str = "t1"
     ):
@@ -526,6 +581,9 @@ class WorkflowStateTests(unittest.TestCase):
             require_contract=True,
         )
         store.register_worktree(self.project, "main", "HEAD")
+        for status in ("preflight", "discovery", "requirements_ready", "planned"):
+            store.transition(status)
+        store.transition("implementing", "t1")
         with self.assertRaisesRegex(workflow_state.StateError, "accepted audited attempt"):
             store.set_task("t1", "done")
         snapshot = store._git_snapshot()
@@ -547,6 +605,12 @@ class WorkflowStateTests(unittest.TestCase):
             "resultSchema": "assets/schemas/agent-result.schema.json",
         }
         store.record_brief("t1", brief)
+        dispatch = store.record_dispatch(
+            "t1",
+            "frontend-developer",
+            "agent-session-1",
+            snapshot,
+        )
         store.record_attempt(
             "t1",
             "frontend-developer",
@@ -556,6 +620,7 @@ class WorkflowStateTests(unittest.TestCase):
             snapshot,
             snapshot,
             "The result omitted required evidence",
+            dispatch["dispatch_id"],
         )
         self.assertEqual(
             len(list((store.directory / "attempts" / "t1").glob("*.json"))),
@@ -563,21 +628,101 @@ class WorkflowStateTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(workflow_state.StateError, "accepted audited attempt"):
             store.set_task("t1", "done")
+        retry_dispatch = store.record_dispatch(
+            "t1",
+            "frontend-developer",
+            "agent-session-2",
+            snapshot,
+        )
         store.record_attempt(
             "t1",
             "frontend-developer",
             "retry",
             "accepted",
-            {"status": "success"},
+            self.developer_result(retry_dispatch["dispatch_id"]),
             snapshot,
             snapshot,
             "The corrected result passed validation",
+            retry_dispatch["dispatch_id"],
         )
         store.set_task("t1", "done")
         routing = __import__("json").loads(
             (store.directory / "routing.json").read_text(encoding="utf-8")
         )
         self.assertEqual(routing["assignments"][0]["task_id"], "t1")
+
+    def test_waiting_dispatch_blocks_progress_until_bound_result_returns(self) -> None:
+        store = workflow_state.WorkflowState.create(
+            self.project,
+            [contracted_task()],
+            "sf-20260724T010217Z-1234abdb",
+            require_contract=True,
+        )
+        store.register_worktree(self.project, "main", "HEAD")
+        for status in ("preflight", "discovery", "requirements_ready", "planned"):
+            store.transition(status)
+        store.transition("implementing", "t1")
+        snapshot = store._git_snapshot()
+        brief = {
+            "runId": store.run_id,
+            "taskId": "t1",
+            "role": "frontend-developer",
+            "workDirectory": str(self.project),
+            "objective": "Implement the frozen behavior",
+            "dependencies": [],
+            "authorizedPaths": ["src/**", "tests/**"],
+            "exclusions": [".git", ".codex"],
+            "acceptanceCriteria": ["The requested behavior is observable"],
+            "verificationCommands": ["python3 -m unittest"],
+            "observableResults": ["The focused regression test passes"],
+            "browserProvider": "chrome-mcp",
+            "uiPrototypeProvider": "penpot-mcp",
+            "beforeSnapshot": snapshot,
+            "resultSchema": "assets/schemas/agent-result.schema.json",
+        }
+        store.record_brief("t1", brief)
+        dispatch = store.record_dispatch(
+            "t1",
+            "frontend-developer",
+            "agent-session-waiting",
+            snapshot,
+        )
+
+        with self.assertRaisesRegex(workflow_state.StateError, "waiting"):
+            store.transition("verifying")
+        with self.assertRaisesRegex(workflow_state.StateError, "waiting"):
+            store.transition("cancelled")
+        with self.assertRaisesRegex(workflow_state.StateError, "waiting"):
+            store.set_task("t1", "done")
+        with self.assertRaisesRegex(workflow_state.StateError, "dispatch"):
+            store.record_attempt(
+                "t1",
+                "frontend-developer",
+                "initial",
+                "accepted",
+                self.developer_result("wrong-dispatch"),
+                snapshot,
+                snapshot,
+                "A fabricated result must not release the wait",
+                "wrong-dispatch",
+            )
+
+        store.record_attempt(
+            "t1",
+            "frontend-developer",
+            "initial",
+            "accepted",
+            self.developer_result(dispatch["dispatch_id"]),
+            snapshot,
+            snapshot,
+            "The returned result passed validation",
+            dispatch["dispatch_id"],
+        )
+        self.assertEqual(
+            store.load()["dispatches"][dispatch["dispatch_id"]]["status"],
+            "accepted",
+        )
+        store.set_task("t1", "done")
 
     def test_orphan_attempt_file_cannot_complete_a_task(self) -> None:
         store = workflow_state.WorkflowState.create(

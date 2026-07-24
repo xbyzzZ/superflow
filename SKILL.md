@@ -20,6 +20,7 @@ Act as the product manager and sole orchestrator. Own user communication, scope,
 5. Allow at most three automatic repair rounds per task. Resume the original developer for rounds one and two; use a fresh developer for round three. Block after another failure.
 6. Do not use Backlog MCP. The local workflow ledger is authoritative.
 7. Completion claims, state transitions, and commits require fresh evidence from the current turn.
+8. After recording a specialist dispatch, the main agent becomes coordination-only until that dispatch returns and its attempt is recorded. It must not overlap the specialist's work, perform project execution, or advance the workflow.
 
 Read before execution:
 
@@ -142,6 +143,30 @@ python3 <superflow>/scripts/git_workspace.py create-worktree \
 - Relevant briefs include `browserProvider`, `uiPrototypeProvider`, and custom details.
 - Snapshot HEAD and refs before and after dispatch. `policy_check.py` may precheck output; gate recording rechecks policy and current repository facts.
 
+Dispatch is a binding protocol, not a notification:
+
+1. prepare the worktree, dependencies, runtime, candidate, brief, and `before` snapshot before dispatch;
+2. reserve the stable subagent session or task handle;
+3. record the dispatch and capture its returned `dispatch_id`;
+4. supply that exact ID with the task dispatch and require it as `dispatchId` in the result;
+5. record any other already-planned independent dispatches;
+6. wait for the dispatched agents; while any dispatch is `waiting`, do not edit files, run project commands, inspect the implementation with CodeGraph, operate browser or prototype tools, implement, test, review, commit, cherry-pick, change task status, freeze a candidate, record a gate, or advance the workflow;
+7. after a terminal result, record the attempt against the same dispatch ID before validating, integrating, retrying, or continuing.
+
+```bash
+python3 <superflow>/scripts/workflow_state.py --project <task-worktree> \
+  record-dispatch <run-id> <task-id> frontend-developer \
+  --session-id <reserved-session-id> --before before.json
+
+python3 <superflow>/scripts/workflow_state.py --project <task-worktree> \
+  record-attempt <run-id> <task-id> frontend-developer initial accepted \
+  --dispatch-id <dispatch-id> \
+  --agent-result result.json --before before.json --after after.json \
+  --reason 'Schema, policy, and repository evidence passed'
+```
+
+If an agent fails to start, terminates, or times out, record a `blocked` or `rejected` attempt for that dispatch before retrying, blocking, or cancelling the run. The main agent may relay evidence that only its selected provider session can collect, but only after the specialist requests it; this exception does not authorize the main agent to perform the specialist's implementation, review, test adjudication, or other assigned work. Never take over a waiting role merely to keep the run moving.
+
 ```bash
 python3 <superflow>/scripts/policy_check.py \
   --project "$PWD" \
@@ -181,11 +206,12 @@ REFACTOR: simplify only after green without adding behavior
 
 After a subagent result:
 
-1. validate structure, paths, tool evidence, and Git snapshots;
-2. read the actual diff;
-3. run the narrowest relevant verification;
-4. stage only authorized paths and create a local commit;
-5. inspect and cherry-pick approved parallel work into integration, then reverify.
+1. record the terminal attempt against its exact dispatch ID, which releases the waiting lock;
+2. validate structure, paths, tool evidence, and Git snapshots;
+3. read the actual diff;
+4. run the narrowest relevant verification;
+5. stage only authorized paths and create a local commit;
+6. inspect and cherry-pick approved parallel work into integration, then reverify.
 
 ## 6. Freeze the candidate and run dual gates
 

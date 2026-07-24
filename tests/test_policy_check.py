@@ -72,6 +72,23 @@ class PolicyCheckTests(unittest.TestCase):
         )
         self.assertTrue(checked["ok"], checked["violations"])
 
+    def test_result_must_match_recorded_dispatch(self) -> None:
+        dispatch_id = "1" * 16
+        checked = self.check(
+            base_result(dispatchId=dispatch_id),
+            expected_role="frontend-developer",
+            expected_task="task-1",
+            expected_dispatch=dispatch_id,
+            code=True,
+        )
+        self.assertTrue(checked["ok"], checked["violations"])
+
+        mismatched = self.check(
+            base_result(dispatchId="2" * 16),
+            expected_dispatch=dispatch_id,
+        )
+        self.assertIn("identity", {item["code"] for item in mismatched["violations"]})
+
     def test_legacy_result_without_memory_requests_remains_valid(self) -> None:
         result = base_result()
         result.pop("memoryWriteRequests")

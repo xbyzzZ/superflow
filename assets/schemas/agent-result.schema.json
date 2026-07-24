@@ -34,6 +34,11 @@
       "type": "string",
       "minLength": 1
     },
+    "dispatchId": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{16}$",
+      "description": "The immutable dispatch identifier supplied by the main agent."
+    },
     "status": {
       "type": "string",
       "enum": [
