@@ -90,7 +90,7 @@ Restart Codex if the current session does not discover the Skill. You may also i
 GitHub release archives contain an installable top-level `superflow/` directory:
 
 ~~~bash
-unzip superflow-v0.1.1.zip -d ~/.codex/skills
+unzip superflow-v0.2.0.zip -d ~/.codex/skills
 ~~~
 
 ## Quick Start
