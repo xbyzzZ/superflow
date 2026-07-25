@@ -148,6 +148,29 @@ class BuiltinGuidesTests(unittest.TestCase):
             with self.subTest(prohibited=prohibited):
                 self.assertIn(prohibited, role_contracts)
 
+    def test_subagents_may_use_only_allowlisted_read_only_git(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        role_contracts = (
+            ROOT / "references" / "role-contracts.md"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("Subagents modify only authorized files and never run Git", skill)
+        for content in (skill, role_contracts):
+            self.assertIn("cat-file", content)
+            self.assertIn("rev-parse", content)
+            self.assertIn("status", content)
+            self.assertIn("Git write", content)
+        for path in sorted((ROOT / "assets" / "agent-templates").glob("*.toml")):
+            content = path.read_text(encoding="utf-8")
+            with self.subTest(template=path.name):
+                self.assertIn("Read-only `git cat-file`", content)
+                self.assertIn("changes Git state", content)
+
+        tester = (
+            ROOT / "assets" / "agent-templates" / "tester.toml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("not a compliance-only review", tester)
+        self.assertIn("every successful tester attempt", skill)
+
     """Verify that built-in expertise never degrades into external Skill dependencies."""
 
     def test_skill_directly_links_all_builtin_guides(self) -> None:

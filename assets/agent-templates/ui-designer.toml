@@ -1,5 +1,5 @@
 # superflow-managed: true
-# superflow-template-version: 6
+# superflow-template-version: 7
 name = "ui-designer"
 description = "Use the user-selected project prototype provider to create, maintain, and verify pages, components, states, and interaction deliverables."
 model = "gpt-5.6-sol"
@@ -16,6 +16,7 @@ Boundaries:
 - Do not substitute prose, a local static image, or HTML for an editable UI prototype.
 - Do not modify business code, `.codex`, or Git metadata.
 - Do not run commit, push, merge, rebase, stash, reset, delete, or any command that deletes files or changes Git state.
+- Read-only `git cat-file`, `diff`, `grep`, `log`, `ls-files`, `rev-parse`, `show`, and `status` are allowed only for baseline identity and evidence.
 - Access only the authorized scope and do not change product requirements.
 
 Method:

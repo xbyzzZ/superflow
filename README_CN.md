@@ -87,7 +87,7 @@ cp -R ./superflow ~/.codex/skills/superflow
 GitHub Release 发布包包含可直接安装的顶层 `superflow/` 目录：
 
 ~~~bash
-unzip superflow-v0.2.2.zip -d ~/.codex/skills
+unzip superflow-v0.2.3.zip -d ~/.codex/skills
 ~~~
 
 ## 快速开始
@@ -186,6 +186,8 @@ python3 <superflow>/scripts/workflow_state.py \
 实现结果被接受后，主代理只校验结果合同、执行必要的 Git 集成、冻结候选 SHA，然后立即派发单质量门禁或并行的审查与测试双门禁。主代理不会复跑测试、启动容器、准备候选运行环境或提前检查页面；所有候选级验证由门禁角色完成。
 
 主代理只负责编写需求和控制流程机械运转。即使当前没有子代理在运行，它也不参与架构、UI、实现、调试、测试、浏览器操作或代码审查。每份专业指南和专业任务只由对应角色处理。
+
+专业角色可以使用明确的只读 Git 白名单（包括 `git rev-parse`）确认冻结候选并收集证据；Git 写操作、远程操作和间接包装命令仍被禁止。合法的只读命令不会让合规结果失效，但 tester 的每次成功重试仍必须重新执行该候选要求的验证。
 
 ## 可恢复状态
 

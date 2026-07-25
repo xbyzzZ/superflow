@@ -90,7 +90,7 @@ Restart Codex if the current session does not discover the Skill. You may also i
 GitHub release archives contain an installable top-level `superflow/` directory:
 
 ~~~bash
-unzip superflow-v0.2.2.zip -d ~/.codex/skills
+unzip superflow-v0.2.3.zip -d ~/.codex/skills
 ~~~
 
 ## Quick Start
@@ -211,6 +211,8 @@ Browser access is also frozen in the brief. `chrome-mcp` and custom specialist-d
 After implementation is accepted, the main agent validates the result contract, performs only the required Git integration, freezes the candidate SHA, and immediately dispatches the quality gate or parallel review and test gates. It does not rerun tests, start containers, prepare the candidate runtime, or pre-inspect the page. Gate agents own candidate-bound verification.
 
 The main agent writes requirements and controls workflow mechanics only. It does not participate in architecture, UI, implementation, debugging, testing, browser operation, or code review, even when no subagent is currently running. Each professional guide and task is handled only by its assigned specialist.
+
+Specialists may use an explicit read-only Git allowlist, including `git rev-parse`, to identify the frozen candidate and collect evidence. Git writes, remote operations, and indirect wrappers remain prohibited. An allowed read-only command never invalidates an otherwise compliant result, while every successful tester retry still reruns its required candidate-bound checks.
 
 ## Role-Isolated Memory
 

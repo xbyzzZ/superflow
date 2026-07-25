@@ -56,10 +56,12 @@ Production, release, security, authorization, data migration, or destructive wor
 - contacting the user or invoking user-decision tools;
 - spawning, managing, or stopping agents;
 - modifying `.codex` or `.git`;
-- Git writes or remote operations;
+- Git writes, remote operations, indirect Git wrappers, or Git subcommands outside the read-only allowlist `cat-file`, `diff`, `grep`, `log`, `ls-files`, `rev-parse`, `show`, and `status`;
 - modifying unauthorized paths;
 - expanding product scope;
 - declaring the overall workflow complete.
+
+Read-only Git is permitted solely to identify the candidate and collect review or test evidence. `git rev-parse`, `git status`, and other allowlisted commands are not authority violations and must not cause rejection or retry.
 
 ## Task brief
 

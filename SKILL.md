@@ -172,7 +172,7 @@ python3 <superflow>/scripts/git_workspace.py create-worktree \
 
 - Serialize writes by default.
 - Parallel task worktrees require frozen interfaces, no order dependency, no shared state, and disjoint files.
-- Subagents modify only authorized files and never run Git.
+- Subagents modify only authorized files. They may run read-only Git commands `cat-file`, `diff`, `grep`, `log`, `ls-files`, `rev-parse`, `show`, and `status` for candidate identity and evidence. They must not run any other Git subcommand, remote operation, Git write, indirect shell wrapper, or command that changes Git state.
 - Every brief is minimal and self-contained. Include only work directory, frozen task facts, paths, acceptance, baseline, result Schema path, execution profile, context controls, tool routing, and the absolute `builtinGuide` for architect, UI, frontend, or backend. Never include the parent conversation or duplicate shared prose.
 - Record the exact brief before dispatch with `workflow_state.py record-brief`. Record every accepted, rejected, blocked, retry, and repair result with `record-attempt`; never overwrite a previous attempt.
 - Put the absolute `roleMemoryScript` in the immutable task brief. Before every dispatch or retry, issue a fresh capability bound to the exact role, run, and task; pass it to `record-dispatch` and supply it to the subagent as `roleMemoryCapability` in the task dispatch wrapper. `record-brief` validates the script and required role guide; `record-dispatch` validates the capability scope and stores only its digest. Never omit, reuse, persist in the brief, or share a capability between roles, tasks, or attempts.
@@ -206,6 +206,8 @@ python3 <superflow>/scripts/workflow_state.py --project <task-worktree> \
 ```
 
 If an agent fails to start, terminates, or times out, record a `blocked` or `rejected` attempt for that dispatch before retrying, blocking, or cancelling the run. If a browser-required task uses `codex-browser`, block before dispatch and ask the user to reconfigure `chrome-mcp` or a specialist-direct custom provider for a new run. Frontend developers may use the selected direct browser for reproduction, debugging, and self-checks; testers use it independently for final acceptance. If a direct provider is unavailable to either role, record its structured `browserEvidenceRequest` as blocked and request provider remediation; the main agent must not operate a browser on the specialist's behalf.
+
+Do not reject or retry an otherwise valid result because it records an allowed read-only Git command such as `git rev-parse`. Never create a compliance-only tester retry: every successful tester attempt, including retries, must independently run the required test commands and collect any required page evidence against its bound candidate SHA.
 
 ```bash
 python3 <superflow>/scripts/policy_check.py \

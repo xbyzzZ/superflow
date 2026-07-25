@@ -136,6 +136,35 @@ class PolicyCheckTests(unittest.TestCase):
         checked = self.check(result)
         self.assertIn("git_authority", {item["code"] for item in checked["violations"]})
 
+    def test_allowlisted_read_only_git_commands_are_allowed(self) -> None:
+        for command in (
+            "git cat-file -t HEAD",
+            "git diff --stat",
+            "git grep pattern",
+            "git log -1 --oneline",
+            "git ls-files",
+            "git rev-parse HEAD",
+            "git show --stat HEAD",
+            "git status --short",
+            "git -C . rev-parse HEAD",
+        ):
+            result = base_result(
+                commandsRun=[
+                    {
+                        "command": command,
+                        "status": "passed",
+                        "exitCode": 0,
+                        "summary": "Read-only Git evidence",
+                    }
+                ]
+            )
+            checked = self.check(result)
+            self.assertNotIn(
+                "git_authority",
+                {item["code"] for item in checked["violations"]},
+                command,
+            )
+
     def test_wrapped_mutating_git_commands_are_rejected(self) -> None:
         for command in (
             "sh -c 'git reset --hard'",
