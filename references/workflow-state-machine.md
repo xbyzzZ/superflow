@@ -68,6 +68,8 @@ While any dispatch is `waiting`, the main agent is coordination-only. State tran
 
 Main-agent browser relay is disabled. A browser-required task cannot record a brief with the main-only `codex-browser` provider and must pause until the user selects a specialist-direct provider for a new run. Frontend and tester roles may use that provider directly for their separate responsibilities. If it is unavailable, record the affected role's blocked evidence request and remediate the provider rather than asking the main agent to browse.
 
+An accepted implementation attempt hands off directly to candidate freeze and gate dispatch. The orchestration interval between them permits only deterministic result/policy validation and necessary Git commit, integration, clean-HEAD, and candidate-freeze operations. It forbids main-agent project commands, runtime or container preparation, temporary project edits, CodeGraph investigation, and browser or prototype work. Gate specialists prepare and verify the frozen candidate themselves.
+
 A new run freezes its `lite`, `standard`, or `strict` profile plus project browser and UI-provider selection. New CLI runs default to `lite`; the deterministic profile selector raises risk-triggered work to `standard` or `strict`. Legacy states without a profile are interpreted as `strict`. If project configuration changes, the old run may only become `blocked` or `cancelled`.
 
 ## Commands

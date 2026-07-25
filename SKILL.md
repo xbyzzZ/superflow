@@ -182,7 +182,7 @@ python3 <superflow>/scripts/git_workspace.py create-worktree \
 
 Dispatch is a binding protocol, not a notification:
 
-1. prepare the worktree, dependencies, runtime, candidate, brief, and `before` snapshot before dispatch; never open or inspect the target page on the specialist's behalf;
+1. prepare only the worktree, immutable brief, role capability, and `before` snapshot before dispatch; the dispatched specialist owns its required dependencies, runtime, verification commands, and page operations;
 2. reserve the stable subagent session or task handle;
 3. record the dispatch and capture its returned `dispatch_id`;
 4. dispatch with `fork_turns=none` or the platform's equivalent no-parent-conversation option; supply only the brief, execution wrapper, and required artifact paths;
@@ -218,7 +218,7 @@ python3 <superflow>/scripts/policy_check.py \
   --code
 ```
 
-Add `--ui` for prototype results or `--browser` for real-page results. Provider evidence must match project configuration. Successful browser and prototype evidence names the actual collector role, task, session, artifact SHA-256, and the result role that adjudicated it. Relayed browser evidence must match the immutable artifact bound to that dispatch: the tester identifies `product-manager` as collector and itself as adjudicator. Never commit or mark success after a policy failure.
+Add `--ui` for prototype results or `--browser` for real-page results. Provider evidence must match project configuration. Successful browser and prototype evidence names the actual collector role, task, session, artifact SHA-256, and the result role that adjudicated it. Never commit or mark success after a policy failure.
 
 Require the specialist result to report successful `memoryRecall` metadata without the capability, query, or recalled content. After the result passes Schema and policy checks, ingest its role-bound memory requests, then revoke the capability:
 
@@ -246,11 +246,13 @@ REFACTOR: simplify only after green without adding behavior
 After a subagent result:
 
 1. record the terminal attempt against its exact dispatch ID, which releases the waiting lock;
-2. validate structure, paths, tool evidence, and Git snapshots;
-3. read the actual diff;
-4. run the narrowest relevant verification;
-5. stage only authorized paths and create a local commit;
-6. inspect and cherry-pick approved parallel work into integration, then reverify.
+2. validate structure, authorized paths, tool evidence, and Git snapshots with deterministic policy checks;
+3. if the implementation result is insufficient, reject it or dispatch repair instead of taking over its verification;
+4. stage only authorized paths and create a local commit;
+5. integrate approved implementation commits mechanically into the integration worktree;
+6. freeze the resulting HEAD immediately and dispatch the required quality gate or dual gates.
+
+Between an accepted implementation result and gate dispatch, the main agent must not run project tests, builds, linters, type checks, containers, servers, runtime probes, CodeGraph analysis, or browser/prototype operations; it must not create or edit temporary runtime configuration. Those checks belong to the implementation specialist before handoff and to the candidate-bound quality agents after handoff. The only permitted project operations are deterministic result/policy validation and the Git actions needed to commit, integrate, confirm a clean HEAD, and freeze the candidate.
 
 ## 6. Freeze the candidate and run dual gates
 
@@ -264,6 +266,8 @@ The SHA must resolve to the integration worktree's current HEAD.
 For `lite`, dispatch one `code-reviewer` against the candidate. It runs every frozen verification command and then reviews specification, correctness, security, and consistency. After its attempt is accepted, record both gates from the same result; the test gate fails unless every command passed.
 
 For `standard` and `strict`, dispatch reviewer and tester in parallel against the exact candidate SHA. Reviewer evaluates specification compliance, correctness and security, then consistency. Tester covers normal, failure, boundary, authorization, data, compatibility, responsive, and regression behavior, including real-page operation when required.
+
+Do not preflight the candidate for these agents. The reviewer prepares only its read-only inspection context; the tester owns candidate runtime startup, frozen verification commands, and real-page setup. A gate blocked by environment or permission returns evidence and does not cause the main agent to rerun or replace that gate.
 
 ```bash
 python3 <superflow>/scripts/workflow_state.py --project <integration-worktree> \

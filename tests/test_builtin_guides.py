@@ -68,6 +68,32 @@ class BuiltinGuidesTests(unittest.TestCase):
             role_contracts,
         )
 
+    def test_implementation_hands_off_directly_to_quality_gates(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        role_contracts = (
+            ROOT / "references" / "role-contracts.md"
+        ).read_text(encoding="utf-8")
+        state_machine = (
+            ROOT / "references" / "workflow-state-machine.md"
+        ).read_text(encoding="utf-8")
+        testing_strategy = (
+            ROOT / "references" / "testing-strategy.md"
+        ).read_text(encoding="utf-8")
+        tester = (
+            ROOT / "assets" / "agent-templates" / "tester.toml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("freeze the resulting HEAD immediately", skill)
+        self.assertIn("must not run project tests", skill)
+        self.assertIn(
+            "must not duplicate these checks before dispatch",
+            testing_strategy,
+        )
+        self.assertIn("direct gate handoff", role_contracts)
+        self.assertIn("must not rerun project commands", role_contracts)
+        self.assertIn("accepted implementation attempt hands off directly", state_machine)
+        self.assertIn("Prepare the frozen candidate runtime yourself", tester)
+
     """Verify that built-in expertise never degrades into external Skill dependencies."""
 
     def test_skill_directly_links_all_builtin_guides(self) -> None:

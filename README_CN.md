@@ -183,6 +183,8 @@ python3 <superflow>/scripts/workflow_state.py \
 
 浏览器权限也会被冻结到任务 brief 中。`chrome-mcp` 和可由专业角色直连的自定义浏览器，可由前端角色用于复现、调试和实现自检，再由测试角色独立完成最终验收。`codex-browser` 仅属于主代理，不能用于委派后的浏览器工作；需要真实页面操作时，流程会暂停并要求用户为新运行改选专业角色可直连的 provider。主代理不会代替专业角色操作浏览器。
 
+实现结果被接受后，主代理只校验结果合同、执行必要的 Git 集成、冻结候选 SHA，然后立即派发单质量门禁或并行的审查与测试双门禁。主代理不会复跑测试、启动容器、准备候选运行环境或提前检查页面；所有候选级验证由门禁角色完成。
+
 ## 可恢复状态
 
 每次运行都保存在 worktree 之外的 Git common directory：`superflow/workflows/<run-id>/`。因此同一仓库的所有 linked worktree 始终读取同一份账本：

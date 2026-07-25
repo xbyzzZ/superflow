@@ -208,6 +208,8 @@ Each planned task freezes its role, dependencies, authorized paths, acceptance c
 
 Browser access is also frozen in the brief. `chrome-mcp` and custom specialist-direct providers can be used by frontend agents for reproduction, debugging, and self-checks, then independently by tester agents for final acceptance. `codex-browser` is main-agent scoped and is not used for delegated browser work; a browser-required task pauses until the user selects a specialist-direct provider for a new run. The main agent never browses on behalf of a specialist.
 
+After implementation is accepted, the main agent validates the result contract, performs only the required Git integration, freezes the candidate SHA, and immediately dispatches the quality gate or parallel review and test gates. It does not rerun tests, start containers, prepare the candidate runtime, or pre-inspect the page. Gate agents own candidate-bound verification.
+
 ## Role-Isolated Memory
 
 All seven roles have separate project memory under the Git common directory at `superflow/memory/`, shared by linked worktrees but never committed or pushed.

@@ -50,3 +50,5 @@ If a test cannot be written first, record the concrete reason and repeatable equ
 5. command, exit-code, failure-count, skip, and environment review.
 
 PASS requires the correct candidate SHA, at least one successful real test command, evidence for every acceptance criterion, no failed, partial, skipped, not-run, or nonzero recorded command, no unexplained flaky test, real-page evidence when required, and no unauthorized test changes. A later successful command never erases an earlier failed command from the same gate attempt.
+
+The tester owns candidate runtime preparation and every candidate-bound verification command. It must not rely on a main-agent preflight, and the main agent must not duplicate these checks before dispatch. Environment or permission failures remain explicit gate evidence and never authorize the main agent to take over testing.

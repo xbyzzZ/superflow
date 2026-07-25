@@ -9,11 +9,13 @@ The main agent is the only user-facing, workflow-writing, and Git-writing role. 
 - apply `product-management-rules.md` to establish evidence, scope, success criteria, and observable acceptance;
 - route required roles and create a task DAG;
 - install or upgrade managed Agent templates;
-- create worktrees, inspect diffs, commit, and integrate;
-- verify subagent evidence and decide continuation, repair, or escalation;
+- create worktrees, validate changed paths and snapshots deterministically, commit, and integrate;
+- validate recorded subagent evidence without recreating it, then decide continuation, repair, or escalation;
 - summarize final results and request user decisions for remote writes, merge, or cleanup.
 
 The main agent cannot substitute its own professional PASS for architecture, UI, implementation, review, or testing.
+
+After accepting an implementation result, the main agent performs a direct gate handoff: deterministic result and path validation, required Git commit/integration, candidate freeze, then quality-agent dispatch. It must not rerun project commands, start containers or servers, modify runtime configuration, inspect the page, or perform a candidate preflight. The implementation specialist owns pre-handoff self-checks; the tester and reviewer own all candidate-bound verification.
 
 ## Dispatch and wait contract
 
@@ -24,6 +26,8 @@ The main agent prepares the environment before recording the dispatch. Once any 
 The specialist copies the supplied `dispatchId` into its result. The main agent binds the returned result to that dispatch with `record-attempt`; fabricated, omitted, reused, or mismatched IDs fail closed. A failed start, termination, or timeout closes as a `blocked` or `rejected` attempt before retrying, blocking, or cancelling the run. The main agent never takes over a waiting role.
 
 The main agent never operates a browser on behalf of a specialist. `codex-browser` is main-only and therefore cannot satisfy delegated real-page work; such a task blocks before dispatch until the user selects a specialist-direct provider for a new run. Frontend developers use that provider for reproduction, debugging, and self-checks; testers use it independently for final acceptance. If it is unavailable, the affected role records a structured evidence request and the workflow requests provider remediation instead of relaying through the main agent.
+
+Gate environment preparation is specialist work. The tester may start the candidate runtime, use authorized temporary environment files outside the candidate, run the frozen commands, and collect browser evidence. The reviewer prepares its own read-only analysis context. A blocked gate is reported and remediated through that role; the main agent never substitutes a preliminary or duplicate verification pass.
 
 ## Routing
 
