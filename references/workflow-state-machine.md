@@ -29,6 +29,9 @@ superflow/workflows/<run-id>/
 ├── plan.json
 ├── routing.json
 ├── worktrees.json
+├── requirements.json
+├── requirements.md
+├── process-log.md
 ├── briefs/
 ├── artifacts/
 ├── attempts/
@@ -40,12 +43,17 @@ superflow/workflows/<run-id>/
 - `plan.json`: task snapshot.
 - `routing.json`: role assignments and immutable brief digests.
 - `worktrees.json`: integration and task worktrees registered for this run.
+- `requirements.json`: immutable structured requirements baseline.
+- `requirements.md`: user-facing requirements document rendered from the baseline.
+- `process-log.md`: user-facing delivery record automatically rendered from audited events.
 - `briefs/`: self-contained subagent inputs.
 - `artifacts/`: structured subagent results.
 - `attempts/`: immutable accepted, rejected, blocked, retry, and repair records.
 - `gates/`: candidate-bound review and test evidence.
 
 Every linked worktree resolves the same directory; never copy ledger files between worktrees. Only the main agent calls the state script. A subagent `workflowUpdateRequest` is a proposal.
+
+New runs configure `en` or `zh-CN` user documents. Freeze `requirements.json` during discovery before entering `requirements_ready`; the state script rejects missing or modified requirements artifacts. `process-log.md` is refreshed transactionally on every state event. Both Markdown files are derived views outside the business worktree and never change the candidate SHA.
 
 `state.json.dispatches` is the current dispatch registry. Each entry binds an immutable dispatch ID to a task, role, worktree, brief digest, pre-execution snapshot, and actual subagent session or task handle:
 
@@ -67,7 +75,13 @@ A new run freezes its `lite`, `standard`, or `strict` profile plus project brows
 ```bash
 python3 scripts/workflow_state.py --project <repo> init \
   --profile <auto|lite|standard|strict> \
-  --risk-signals <signals.json> --plan plan.json
+  --risk-signals <signals.json> --document-language <en|zh-CN> \
+  --plan plan.json
+
+python3 scripts/workflow_state.py --project <repo> record-requirements \
+  <run-id> --requirements requirements.json
+
+python3 scripts/workflow_state.py --project <repo> summary <run-id>
 
 python3 scripts/workflow_state.py --project <repo> transition <run-id> preflight
 python3 scripts/workflow_state.py --project <repo> set-task <run-id> T1 in_progress
@@ -95,6 +109,8 @@ python3 scripts/workflow_state.py --project <repo> record-risk \
 For a browser relay, add `--browser-evidence <evidence.json>`. The source JSON must identify the frozen provider, `collectorRole=product-manager`, task, browser session, page, actions, result, capture time, and a non-empty `artifacts` array. Each artifact names a supported kind and source path. The state script copies every artifact plus a canonical manifest into the shared run ledger, verifies their SHA-256 values at acceptance, and returns the immutable manifest path and digest. Supply that returned metadata to the new specialist dispatch as `browserEvidence`.
 
 `plan.json` is an array of complete task contracts. Each task requires `id`, `title`, `role`, `dependencies`, `authorizedPaths`, `acceptanceCriteria`, `verificationCommands`, `observableResults`, and `status`; dependencies must form an acyclic graph.
+
+Use `summary` for routine orchestration. Full `show` is reserved for recovery and audit because it includes complete dispatch history. Contracted gate records keep only the immutable attempt ID and result/policy digests in `state.json`; the complete Agent result, snapshots, and policy evidence remain in the attempt artifact.
 
 Every new brief binds the selected profile to minimal context controls. `lite` uses at most three recalled memories and 2 KiB, compact result prose, optional CodeGraph, and one combined `code-reviewer` quality result for both gates. `standard` uses five memories and 4 KiB with independent parallel gates. `strict` retains ten memories, 8 KiB, full result detail, and independent gates. The state script rejects a brief whose limits do not match the run.
 

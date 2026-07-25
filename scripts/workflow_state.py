@@ -26,6 +26,7 @@ from role_memory import (
     resolve_capability,
 )
 from workflow_profile import PROFILE_POLICIES, ProfileError, select_profile
+from user_documents import render_process_log, render_requirements
 
 
 GATES = {"test", "review"}
@@ -63,6 +64,14 @@ AGENT_RESULT_SCHEMA = json.loads(
         / "agent-result.schema.json"
     ).read_text(encoding="utf-8")
 )
+REQUIREMENTS_SCHEMA = json.loads(
+    (
+        Path(__file__).resolve().parents[1]
+        / "assets"
+        / "schemas"
+        / "requirements.schema.json"
+    ).read_text(encoding="utf-8")
+)
 
 
 class StateError(RuntimeError):
@@ -84,6 +93,19 @@ def _atomic_write(path: Path, value: dict[str, Any]) -> None:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             json.dump(value, handle, ensure_ascii=False, indent=2, sort_keys=True)
             handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def _atomic_write_text(path: Path, value: str) -> None:
+    descriptor, temporary = tempfile.mkstemp(prefix=".document.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(value)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
@@ -335,6 +357,7 @@ class WorkflowState:
         self.state_path = self.directory / "state.json"
         self.events_path = self.directory / "events.jsonl"
         self.lock_path = self.directory / ".state.lock"
+        self.requirements_lock_path = self.directory / ".requirements.lock"
 
     def _assert_safe_storage(self) -> None:
         for path in (
@@ -343,6 +366,7 @@ class WorkflowState:
             self.state_path,
             self.events_path,
             self.lock_path,
+            self.requirements_lock_path,
         ):
             if path.is_symlink():
                 raise StateError(f"Symlinked state path is refused: {path}")
@@ -361,9 +385,12 @@ class WorkflowState:
         require_contract: bool = False,
         profile: str = "strict",
         profile_selection: dict[str, Any] | None = None,
+        document_language: str | None = None,
     ) -> "WorkflowState":
         if profile not in PROFILES:
             raise StateError("Invalid execution profile")
+        if document_language not in {None, "en", "zh-CN"}:
+            raise StateError("Invalid user document language")
         store = cls(project, run_id or new_run_id())
         store._assert_safe_storage()
         if store.directory.exists():
@@ -387,6 +414,18 @@ class WorkflowState:
             **(
                 {"profile_selection": profile_selection}
                 if profile_selection is not None
+                else {}
+            ),
+            **(
+                {
+                    "user_documents": {
+                        "language": document_language,
+                        "requirements_path": "requirements.md",
+                        "process_log_path": "process-log.md",
+                    },
+                    "requirements": None,
+                }
+                if document_language is not None
                 else {}
             ),
             "active_task_id": None,
@@ -437,6 +476,37 @@ class WorkflowState:
             or selection.get("policy") != PROFILE_POLICIES[profile]
         ):
             raise StateError("The frozen profile selection does not match its policy")
+        documents = state.get("user_documents")
+        requirements = state.get("requirements")
+        if documents is not None:
+            if requirements is not None:
+                requirements_path = self.directory / "requirements.json"
+                markdown_path = self.directory / documents["requirements_path"]
+                try:
+                    payload = json.loads(requirements_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise StateError("The frozen requirements artifact is unavailable") from exc
+                try:
+                    validate(payload, REQUIREMENTS_SCHEMA)
+                except SchemaValidationError as exc:
+                    raise StateError(
+                        f"The frozen requirements artifact is invalid: {exc}"
+                    ) from exc
+                if (
+                    self._digest(payload) != requirements["digest"]
+                    or not markdown_path.is_file()
+                    or markdown_path.read_text(encoding="utf-8")
+                    != render_requirements(
+                        payload,
+                        self.run_id,
+                        state.get("profile", "strict"),
+                        requirements["recorded_at"],
+                        documents["language"],
+                    )
+                ):
+                    raise StateError("The frozen requirements document was modified")
+        elif requirements is not None:
+            raise StateError("Requirements metadata requires user document configuration")
         task_ids = {item["id"] for item in state["plan"]}
         if len(task_ids) != len(state["plan"]):
             raise StateError("state.json contains duplicate task IDs")
@@ -596,6 +666,16 @@ class WorkflowState:
                     handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
                     handle.flush()
                     os.fsync(handle.fileno())
+                documents = state.get("user_documents")
+                if documents is not None:
+                    events = [
+                        json.loads(line)
+                        for line in self.events_path.read_text(encoding="utf-8").splitlines()
+                    ]
+                    _atomic_write_text(
+                        self.directory / documents["process_log_path"],
+                        render_process_log(state, events, documents["language"]),
+                    )
             except OSError:
                 if previous_state is None:
                     self.state_path.unlink(missing_ok=True)
@@ -611,6 +691,117 @@ class WorkflowState:
                     with self.events_path.open("r+b") as handle:
                         handle.truncate(previous_event_size)
                 raise
+
+    def record_requirements(self, requirements: Any) -> dict[str, Any]:
+        self._assert_safe_storage()
+        with self.requirements_lock_path.open("a+", encoding="utf-8") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            return self._record_requirements_locked(requirements)
+
+    def _record_requirements_locked(self, requirements: Any) -> dict[str, Any]:
+        state = self.load()
+        self._require_mutable(state)
+        self._ensure_tool_config_current(state)
+        self._ensure_no_waiting_dispatches(state, "Requirements recording")
+        if state["status"] != "discovery":
+            raise StateError("Requirements can be frozen only during discovery")
+        documents = state.get("user_documents")
+        if documents is None:
+            raise StateError("This legacy run has no user document configuration")
+        if state.get("requirements") is not None:
+            raise StateError("The user requirements baseline is immutable")
+        try:
+            validate(requirements, REQUIREMENTS_SCHEMA)
+        except SchemaValidationError as exc:
+            raise StateError(f"The requirements baseline is invalid: {exc}") from exc
+        recorded_at = _now()
+        metadata = {
+            "digest": self._digest(requirements),
+            "recorded_at": recorded_at,
+            "title": requirements["title"],
+        }
+        json_path = self.directory / "requirements.json"
+        markdown_path = self.directory / documents["requirements_path"]
+        _atomic_write(json_path, requirements)
+        _atomic_write_text(
+            markdown_path,
+            render_requirements(
+                requirements,
+                self.run_id,
+                state.get("profile", "strict"),
+                recorded_at,
+                documents["language"],
+            ),
+        )
+        state["requirements"] = metadata
+        try:
+            self._save(
+                state,
+                "record_requirements",
+                {"title": requirements["title"], "digest": metadata["digest"]},
+            )
+        except (OSError, StateError):
+            json_path.unlink(missing_ok=True)
+            markdown_path.unlink(missing_ok=True)
+            raise
+        return state
+
+    def summary(self) -> dict[str, Any]:
+        state = self.load()
+        documents = state.get("user_documents")
+        document_summary = (
+            {
+                "language": documents["language"],
+                "requirements_path": str(
+                    self.directory / documents["requirements_path"]
+                ),
+                "process_log_path": str(
+                    self.directory / documents["process_log_path"]
+                ),
+            }
+            if documents is not None
+            else None
+        )
+        waiting = [
+            {
+                "dispatch_id": item["dispatch_id"],
+                "task_id": item["task_id"],
+                "role": item["role"],
+                "started_at": item["started_at"],
+            }
+            for item in self._waiting_dispatches(state)
+        ]
+        gates = {
+            name: {
+                key: value
+                for key, value in record.items()
+                if key in {"id", "task_id", "result", "sha", "valid", "recorded_at"}
+            }
+            for name, record in state["gates"].items()
+        }
+        return {
+            "run_id": state["run_id"],
+            "revision": state["revision"],
+            "status": state["status"],
+            "profile": state.get("profile", "strict"),
+            "active_task_id": state["active_task_id"],
+            "requirements": state.get("requirements"),
+            "user_documents": document_summary,
+            "plan": [
+                {
+                    key: value
+                    for key, value in task.items()
+                    if key in {"id", "title", "role", "status", "dependencies"}
+                }
+                for task in state["plan"]
+            ],
+            "candidate_sha": state["candidate_sha"],
+            "gates": gates,
+            "waiting_dispatches": waiting,
+            "repair_rounds": state["repair_rounds"],
+            "risks": state["risks"],
+            "updated_at": state["updated_at"],
+        }
 
     def register_worktree(
         self,
@@ -1380,6 +1571,14 @@ class WorkflowState:
             self._ensure_tool_config_current(state)
         if not emergency and target not in TRANSITIONS.get(source, set()):
             raise StateError(f"Invalid state transition: {source} -> {target}")
+        if (
+            target == "requirements_ready"
+            and state.get("user_documents") is not None
+            and state.get("requirements") is None
+        ):
+            raise StateError(
+                "Freeze the user-facing requirements baseline before requirements_ready"
+            )
         if target == "fixing":
             if task_id is None:
                 raise StateError("The fixing state requires a task-id")
@@ -1571,6 +1770,7 @@ class WorkflowState:
         )
         task = next(item for item in state["plan"] if item["id"] == task_id)
         brief: dict[str, Any] | None = None
+        attempt: dict[str, Any] | None = None
         if "role" in task:
             dispatch_id = agent_result.get("dispatchId")
             dispatch = state.get("dispatches", {}).get(dispatch_id)
@@ -1637,7 +1837,17 @@ class WorkflowState:
             "task_id": task_id,
             "result": result,
             "sha": sha.lower(),
-            "evidence": {"agent_result": agent_result, "policy": checked},
+            "evidence": (
+                {
+                    "source": "attempt",
+                    "attempt_id": dispatch["attempt_id"],
+                    "dispatch_id": agent_result.get("dispatchId"),
+                    "result_digest": attempt["result_digest"],
+                    "policy_digest": self._digest(checked),
+                }
+                if attempt is not None
+                else {"agent_result": agent_result, "policy": checked}
+            ),
             "valid": True,
             "recorded_at": _now(),
         }
@@ -1787,7 +1997,11 @@ class WorkflowState:
 
 def _json_argument(value: str) -> Any:
     path = Path(value)
-    text = path.read_text(encoding="utf-8") if path.is_file() else value
+    try:
+        is_file = path.is_file()
+    except OSError:
+        is_file = False
+    text = path.read_text(encoding="utf-8") if is_file else value
     return json.loads(text)
 
 
@@ -1804,7 +2018,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default="auto",
     )
     init.add_argument("--risk-signals", type=_json_argument, default={})
-    for name in ("show", "finish"):
+    init.add_argument(
+        "--document-language",
+        choices=("en", "zh-CN"),
+        default="en",
+    )
+    for name in ("show", "summary", "finish"):
         command = sub.add_parser(name)
         command.add_argument("run_id")
     transition = sub.add_parser("transition")
@@ -1830,6 +2049,13 @@ def _build_parser() -> argparse.ArgumentParser:
     risk.add_argument("gate", choices=sorted(GATES))
     risk.add_argument("--accepted-by", required=True)
     risk.add_argument("--reason", required=True)
+    requirements = sub.add_parser("record-requirements")
+    requirements.add_argument("run_id")
+    requirements.add_argument(
+        "--requirements",
+        required=True,
+        type=_json_argument,
+    )
     task = sub.add_parser("set-task")
     task.add_argument("run_id")
     task.add_argument("task_id")
@@ -1872,12 +2098,15 @@ def main(argv: list[str] | None = None) -> int:
                 require_contract=True,
                 profile=selection["profile"],
                 profile_selection=selection,
+                document_language=args.document_language,
             )
             result = store.load()
         else:
             store = WorkflowState(args.project, args.run_id)
             if args.command == "show":
                 result = store.load()
+            elif args.command == "summary":
+                result = store.summary()
             elif args.command == "transition":
                 result = store.transition(args.status, args.task_id)
             elif args.command == "set-candidate":
@@ -1896,6 +2125,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
             elif args.command == "record-risk":
                 result = store.record_risk(args.gate, args.accepted_by, args.reason)
+            elif args.command == "record-requirements":
+                result = store.record_requirements(args.requirements)
             elif args.command == "set-task":
                 result = store.set_task(args.task_id, args.status)
             elif args.command == "record-brief":

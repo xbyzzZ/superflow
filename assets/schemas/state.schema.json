@@ -49,6 +49,13 @@
       ]
     },
     "tool_config": {"$ref": "#/$defs/toolConfig"},
+    "user_documents": {"$ref": "#/$defs/userDocuments"},
+    "requirements": {
+      "oneOf": [
+        {"$ref": "#/$defs/requirementsMetadata"},
+        {"type": "null"}
+      ]
+    },
     "profile": {
       "type": "string",
       "enum": ["lite", "standard", "strict"]
@@ -154,6 +161,26 @@
     "updated_at": {"type": "string", "format": "date-time"}
   },
   "$defs": {
+    "userDocuments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "requirements_path", "process_log_path"],
+      "properties": {
+        "language": {"type": "string", "enum": ["en", "zh-CN"]},
+        "requirements_path": {"const": "requirements.md"},
+        "process_log_path": {"const": "process-log.md"}
+      }
+    },
+    "requirementsMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "recorded_at", "title"],
+      "properties": {
+        "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "recorded_at": {"type": "string", "format": "date-time"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    },
     "toolSelection": {
       "type": "object",
       "additionalProperties": false,

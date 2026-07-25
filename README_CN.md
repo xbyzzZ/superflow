@@ -24,6 +24,8 @@ Superflow 是一个面向 Codex 的端到端软件交付工作流 Skill，由一
 - candidate 发生变化后，既有门禁自动失效。
 - 返工绑定不可变任务 lineage，同一任务最多自动修复三轮。
 - 项目内状态快照和 hash 链事件日志支持跨会话恢复。
+- 每个新运行都会生成面向用户的需求基线和自动刷新的处理过程记录，且不进入业务 worktree。
+- 日常协调只读取紧凑状态摘要；完整 Agent 结果保留在不可变审计制品中，仅在恢复或证据核查时读取。
 - 七个角色都能通过角色绑定的临时凭证主动读取自己的项目历史，并提出重要记忆，但不能读取其他角色记忆。
 - 记录 brief 时会校验当前安装的角色记忆脚本；每次首次、重试或修复派发都必须使用新的角色绑定 capability。缺失、复用、过期、已撤销、伪造或跨角色 capability 会直接阻塞，角色历史为空则可以正常继续。
 - 被接受的专业子代理结果必须报告成功的记忆召回数量，但不得暴露 capability、查询内容或实际召回记录。
@@ -53,7 +55,7 @@ Superflow 是一个面向 Codex 的端到端软件交付工作流 Skill，由一
 
 确定性选择器会采用满足风险边界的最轻档位。用户可以主动提高档位，但用户请求和主代理都不能把档位降低到已识别风险以下。没有档位字段的旧运行继续按 `strict` 处理。
 
-`workflow_state.py init` 接收 `--profile auto` 和 JSON 格式的 `--risk-signals`，在冻结运行前重新执行选择器。没有风险信号时，新 CLI 运行会落到 `lite`。
+`workflow_state.py init` 接收 `--profile auto`、JSON 格式的 `--risk-signals` 和 `--document-language en|zh-CN`，在冻结运行前重新执行选择器，并初始化面向用户的过程记录。没有风险信号时，新 CLI 运行会落到 `lite`。
 
 ## 环境要求
 
@@ -128,15 +130,17 @@ python3 <superflow>/scripts/init_project.py --project "$PWD" \
 
 1. 初始化或升级六份托管 Agent 模板。
 2. 确认目标项目是干净的 Git worktree。
-3. 澄清需求并定义可观察验收标准。
-4. 只调度当前任务需要的专业角色。
+3. 澄清需求、冻结面向用户的 `requirements.md`，并定义可观察验收标准。
+4. 选择并冻结最轻安全档位，只调度当前任务需要的专业角色。
 5. 创建 integration worktree，并按需创建互不冲突的任务 worktree。
 6. 记录每次派发，把不可变派发 ID 交给专业子代理，然后等待且不重叠执行已分配工作。
 7. 将返回结果绑定到对应派发后，再校验 Agent 结果、实际 diff、工具证据和 Git snapshot。
 8. 只提交明确授权的路径。
 9. 将 integration worktree 的真实 HEAD 冻结为 candidate。
-10. 让 tester 和 code-reviewer 针对同一 candidate SHA 给出门禁结果。
+10. 记录同一 candidate SHA 的门禁：`lite` 使用一份综合质量结果，`standard` 和 `strict` 使用独立并行的 tester 与 reviewer 结果。
 11. 所有计划任务完成且双门通过后才结束；失败门禁只能由用户逐项明确接受风险。
+
+状态脚本还会根据审计事件自动维护 `process-log.md`。两份面向用户的 Markdown 文档位于共享运行目录，因此所有 worktree 都可读取，又不会改变业务候选提交。日常协调使用紧凑 `summary` 命令，完整 `show` 仅用于恢复或审计。
 
 ## Candidate 与双门审批
 
@@ -189,6 +193,9 @@ events.jsonl
 plan.json
 routing.json
 worktrees.json
+requirements.json
+requirements.md
+process-log.md
 briefs/
 artifacts/
 attempts/
@@ -273,7 +280,7 @@ GitHub CI 会在 push 和 pull request 时运行完整测试并验证发布包�
 python3 -m unittest discover -s tests -v
 ~~~
 
-当前实现状态：**123 项测试全部通过**，覆盖显式调用门、派发绑定等待与结果身份校验、角色记忆 brief 强校验、项目级工具选择与漂移拦截、共享工作流账本、完整任务合同与依赖、不可变尝试审计、外部证据来源、角色隔离记忆、英文发布边界、发布包可复现性、作者元数据、双门完整性、candidate 失效、返工上限、状态恢复、事件篡改、Git 路径安全、hook 阻塞和策略检查等对抗场景。
+当前测试覆盖显式调用门、派发绑定等待与结果身份校验、角色记忆 brief 强校验、用户文档生成、紧凑状态摘要、项目级工具选择与漂移拦截、共享工作流账本、完整任务合同与依赖、不可变尝试审计、外部证据来源、角色隔离记忆、英文发布边界、发布包可复现性、作者元数据、双门完整性、candidate 失效、返工上限、状态恢复、事件篡改、Git 路径安全、hook 阻塞和策略检查等对抗场景。
 
 使用 Codex Skill Creator 校验 Skill 元数据：
 

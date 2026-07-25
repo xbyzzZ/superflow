@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import unittest
@@ -124,6 +125,29 @@ class BuiltinGuidesTests(unittest.TestCase):
                 self.assertIn("resultDetail", content)
                 self.assertIn("do not emit progress narration", content)
 
+    def test_user_documents_and_compact_state_are_required_for_new_runs(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        state_script = (ROOT / "scripts" / "workflow_state.py").read_text(
+            encoding="utf-8"
+        )
+        workflow_reference = (
+            ROOT / "references" / "workflow-state-machine.md"
+        ).read_text(encoding="utf-8")
+        requirements_schema = json.loads(
+            (
+                ROOT / "assets" / "schemas" / "requirements.schema.json"
+            ).read_text(encoding="utf-8")
+        )
+
+        self.assertIn("record-requirements", skill)
+        self.assertIn("requirements.md", skill)
+        self.assertIn("process-log.md", skill)
+        self.assertIn("summary <run-id>", skill)
+        self.assertIn("def record_requirements", state_script)
+        self.assertIn("def summary", state_script)
+        self.assertIn("complete Agent result", workflow_reference)
+        self.assertIn("acceptanceCriteria", requirements_schema["required"])
+
     def test_reviewer_contract_is_candidate_bound_and_defect_first(self) -> None:
         criteria = (ROOT / "references" / "code-review-criteria.md").read_text(
             encoding="utf-8"
@@ -198,12 +222,21 @@ class BuiltinGuidesTests(unittest.TestCase):
         han = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
         text_suffixes = {".json", ".md", ".py", ".toml", ".txt", ".yaml", ".yml"}
         chinese_label = "\u7b80\u4f53\u4e2d\u6587"
-        tracked = subprocess.run(
-            ["git", "-C", str(ROOT), "ls-files", "-z"],
+        tracked_and_new = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(ROOT),
+                "ls-files",
+                "-z",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+            ],
             check=True,
             stdout=subprocess.PIPE,
         ).stdout.decode("utf-8").split("\0")
-        for relative in tracked:
+        for relative in tracked_and_new:
             path = ROOT / relative
             if (
                 not relative

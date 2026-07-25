@@ -35,6 +35,25 @@ def contracted_task(task_id: str = "t1", dependencies: list[str] | None = None) 
     }
 
 
+def user_requirements() -> dict:
+    return {
+        "title": "Improve workflow visibility",
+        "background": "Users need a readable requirements baseline and delivery record.",
+        "objective": "Keep user-facing documents synchronized with audited workflow state.",
+        "users": ["Project owner"],
+        "scenarios": ["Review requirements before implementation", "Inspect delivery progress"],
+        "inScope": ["Requirements baseline", "Process log"],
+        "outOfScope": ["Business repository documentation"],
+        "acceptanceCriteria": [
+            "Requirements are frozen before requirements_ready",
+            "The process log follows ledger milestones",
+        ],
+        "constraints": ["Documents must not change the candidate Git SHA"],
+        "decisions": ["Store documents in the shared run directory"],
+        "openQuestions": [],
+    }
+
+
 class WorkflowStateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -359,7 +378,7 @@ class WorkflowStateTests(unittest.TestCase):
         result["evidence"] = [
             item for item in result["evidence"] if item["type"] != "codegraph"
         ]
-        store.record_attempt(
+        attempt = store.record_attempt(
             "t1",
             "code-reviewer",
             "initial",
@@ -381,6 +400,17 @@ class WorkflowStateTests(unittest.TestCase):
                 [],
             )
             self.assertEqual(state["gates"][gate]["result"], "PASS")
+            gate_evidence = state["gates"][gate]["evidence"]
+            self.assertEqual(gate_evidence["source"], "attempt")
+            self.assertEqual(
+                gate_evidence["attempt_id"],
+                attempt["attempt_id"],
+            )
+            self.assertNotIn("agent_result", gate_evidence)
+            self.assertLess(
+                len(__import__("json").dumps(gate_evidence)),
+                len(__import__("json").dumps(result)),
+            )
         self.assertTrue(store._both_gates_pass(store.load()))
 
     def test_browser_gate_uses_shared_project_provider(self) -> None:
@@ -735,6 +765,149 @@ class WorkflowStateTests(unittest.TestCase):
             state["profile_selection"]["reasons"],
             ["production"],
         )
+        self.assertEqual(state["user_documents"]["language"], "en")
+        self.assertTrue((workflow_state.WorkflowState(self.project, run_id).directory / "process-log.md").is_file())
+
+    def test_user_documents_freeze_requirements_and_follow_ledger(self) -> None:
+        selection = workflow_profile.select_profile({})
+        store = workflow_state.WorkflowState.create(
+            self.project,
+            [contracted_task()],
+            "sf-20260724T010217Z-1234abdb",
+            require_contract=True,
+            profile=selection["profile"],
+            profile_selection=selection,
+            document_language="zh-CN",
+        )
+        process_path = store.directory / "process-log.md"
+        self.assertIn("\u5904\u7406\u8fc7\u7a0b\u8bb0\u5f55", process_path.read_text(encoding="utf-8"))
+        store.transition("preflight")
+        store.transition("discovery")
+        with self.assertRaisesRegex(workflow_state.StateError, "requirements baseline"):
+            store.transition("requirements_ready")
+
+        state = store.record_requirements(user_requirements())
+        requirements_path = store.directory / "requirements.md"
+        requirements_text = requirements_path.read_text(encoding="utf-8")
+        self.assertIn("# \u9700\u6c42\u6587\u6863: Improve workflow visibility", requirements_text)
+        self.assertIn("\u9700\u6c42\u5df2\u51bb\u7ed3", process_path.read_text(encoding="utf-8"))
+        self.assertRegex(state["requirements"]["digest"], r"^[a-f0-9]{64}$")
+        with self.assertRaisesRegex(workflow_state.StateError, "immutable"):
+            store.record_requirements(user_requirements())
+        store.transition("requirements_ready")
+        self.assertIn(
+            "discovery, to=requirements_ready",
+            process_path.read_text(encoding="utf-8"),
+        )
+        summary = store.summary()
+        self.assertEqual(summary["requirements"]["title"], "Improve workflow visibility")
+        self.assertEqual(
+            summary["user_documents"]["requirements_path"],
+            str(requirements_path),
+        )
+        self.assertNotIn("dispatches", summary)
+        self.assertLess(
+            len(__import__("json").dumps(summary)),
+            len(__import__("json").dumps(store.load())),
+        )
+
+    def test_tampered_requirements_document_is_rejected(self) -> None:
+        selection = workflow_profile.select_profile({})
+        store = workflow_state.WorkflowState.create(
+            self.project,
+            [contracted_task()],
+            "sf-20260724T010218Z-1234abdc",
+            require_contract=True,
+            profile=selection["profile"],
+            profile_selection=selection,
+            document_language="en",
+        )
+        store.transition("preflight")
+        store.transition("discovery")
+        store.record_requirements(user_requirements())
+        (store.directory / "requirements.md").write_text(
+            "tampered\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(workflow_state.StateError, "was modified"):
+            store.load()
+
+    def test_process_document_write_failure_rolls_back_state_and_events(self) -> None:
+        selection = workflow_profile.select_profile({})
+        store = workflow_state.WorkflowState.create(
+            self.project,
+            [contracted_task()],
+            "sf-20260724T010219Z-1234abdd",
+            require_contract=True,
+            profile=selection["profile"],
+            profile_selection=selection,
+            document_language="en",
+        )
+        before = store.load()
+        events_before = store.events_path.read_text(encoding="utf-8")
+        process_before = (store.directory / "process-log.md").read_text(encoding="utf-8")
+        with mock.patch.object(
+            workflow_state,
+            "_atomic_write_text",
+            side_effect=OSError("document write failed"),
+        ):
+            with self.assertRaisesRegex(OSError, "document write failed"):
+                store.transition("preflight")
+        self.assertEqual(store.load(), before)
+        self.assertEqual(store.events_path.read_text(encoding="utf-8"), events_before)
+        self.assertEqual(
+            (store.directory / "process-log.md").read_text(encoding="utf-8"),
+            process_before,
+        )
+
+    def test_concurrent_requirements_freeze_keeps_one_consistent_baseline(self) -> None:
+        selection = workflow_profile.select_profile({})
+        run_id = "sf-20260724T010220Z-1234abde"
+        store = workflow_state.WorkflowState.create(
+            self.project,
+            [contracted_task()],
+            run_id,
+            require_contract=True,
+            profile=selection["profile"],
+            profile_selection=selection,
+            document_language="en",
+        )
+        store.transition("preflight")
+        store.transition("discovery")
+        first = user_requirements()
+        second = {**user_requirements(), "title": "Concurrent alternative"}
+        processes = [
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    str(SCRIPTS / "workflow_state.py"),
+                    "--project",
+                    str(self.project),
+                    "record-requirements",
+                    run_id,
+                    "--requirements",
+                    __import__("json").dumps(payload),
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            for payload in (first, second)
+        ]
+        results = [process.communicate(timeout=10) for process in processes]
+        self.assertEqual(
+            sorted(process.returncode for process in processes),
+            [0, 2],
+            results,
+        )
+        self.assertTrue(all(not stderr for _, stderr in results))
+
+        state = store.load()
+        recorded = __import__("json").loads(
+            (store.directory / "requirements.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(state["requirements"]["title"], recorded["title"])
+        self.assertIn(recorded["title"], {"Improve workflow visibility", "Concurrent alternative"})
 
     def test_task_ids_and_authorized_paths_cannot_escape_audit_storage(self) -> None:
         for task_id in ("../escape", "nested/task"):

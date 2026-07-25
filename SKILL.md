@@ -103,10 +103,20 @@ Use `lite` for localized low-risk work, `standard` for user-visible, browser, UI
 python3 <superflow>/scripts/workflow_state.py --project "$PWD" init \
   --profile auto \
   --risk-signals '{"userVisible":false,"crossModule":false}' \
+  --document-language zh-CN \
   --plan plan.json
 ```
 
-The CLI defaults to automatic selection, which resolves to `lite` with no risk signals. Pass the same complete signal set used for preview; `workflow_state.py` reruns the selector so a requested profile cannot bypass an upgrade. `plan.json` must contain complete task contracts, not titles or placeholders. Save `run_id`. The script freezes the selection, profile, and project tools in shared state. Existing states without a profile remain `strict`. Update state only through `workflow_state.py`; never copy, edit, or synthesize ledger files manually.
+Use `zh-CN` when the user communicates in Simplified Chinese; otherwise use `en`. The CLI defaults to automatic profile selection and English documents. Pass the same complete signal set used for preview; `workflow_state.py` reruns the selector so a requested profile cannot bypass an upgrade. `plan.json` must contain complete task contracts, not titles or placeholders. Save `run_id`. The script freezes the selection, profile, project tools, and user-document language in shared state. Existing states without a profile remain `strict`; legacy runs without user-document configuration continue without the new document requirement. Update state only through `workflow_state.py`; never copy, edit, or synthesize ledger files manually.
+
+Routine coordination reads the compact summary:
+
+```bash
+python3 <superflow>/scripts/workflow_state.py --project "$PWD" \
+  summary <run-id>
+```
+
+Use full `show` only for recovery or audit. It may contain complete dispatch history and should not be added to model context during normal progression.
 
 ## 3. Freeze requirements and route conditionally
 
@@ -125,6 +135,15 @@ python3 <superflow>/scripts/role_memory.py --project "$PWD" recall \
 Reverify recalled guidance against current facts. Record only durable, evidenced product knowledge with `record`; never retain transient progress or sensitive content.
 
 Apply `product-management-rules.md` to freeze user, evidence, scenario, scope, failures, authorization, compatibility, success criteria, and observable acceptance.
+
+Write the structured baseline defined by `assets/schemas/requirements.schema.json`, then freeze it before entering `requirements_ready`:
+
+```bash
+python3 <superflow>/scripts/workflow_state.py --project "$PWD" \
+  record-requirements <run-id> --requirements requirements.json
+```
+
+The state script generates immutable `requirements.md` and an automatically refreshed `process-log.md` in the shared run directory under the Git common directory. These are user-facing derived documents, not business-repository files; never copy them into the candidate commit or edit them directly. Give the user their absolute paths after requirements freeze and in the final report.
 
 Ask the user only for material product ambiguity, scope expansion, destructive or remote action, unresolved third-round failure, or final push, PR, merge, or cleanup.
 
@@ -284,7 +303,7 @@ For explicit user risk acceptance:
 3. highlight failed evidence and accepted scope in the final report;
 4. retain FAIL.
 
-Report delivered behavior, commit scope, role artifacts, verification commands, gate results, accepted risks, remaining issues, and branch or worktree location.
+Report delivered behavior, commit scope, role artifacts, verification commands, gate results, accepted risks, remaining issues, branch or worktree location, and absolute paths to `requirements.md` and `process-log.md`.
 
 After passing, offer local merge, push and PR, or preservation. Do not push, create a PR, merge, delete a branch, or remove a worktree without explicit authorization. Preserve a PR worktree until feedback is resolved by default.
 

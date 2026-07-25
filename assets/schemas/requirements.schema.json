@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://superflow.local/schemas/requirements.schema.json",
+  "title": "Superflow User Requirements Baseline",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "background",
+    "objective",
+    "users",
+    "scenarios",
+    "inScope",
+    "outOfScope",
+    "acceptanceCriteria",
+    "constraints",
+    "decisions",
+    "openQuestions"
+  ],
+  "properties": {
+    "title": {"type": "string", "minLength": 1, "maxLength": 200},
+    "background": {"type": "string", "minLength": 1, "maxLength": 8000},
+    "objective": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "users": {"$ref": "#/$defs/nonEmptyList"},
+    "scenarios": {"$ref": "#/$defs/nonEmptyList"},
+    "inScope": {"$ref": "#/$defs/nonEmptyList"},
+    "outOfScope": {"$ref": "#/$defs/list"},
+    "acceptanceCriteria": {"$ref": "#/$defs/nonEmptyList"},
+    "constraints": {"$ref": "#/$defs/list"},
+    "decisions": {"$ref": "#/$defs/list"},
+    "openQuestions": {"$ref": "#/$defs/list"}
+  },
+  "$defs": {
+    "list": {
+      "type": "array",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 2000}
+    },
+    "nonEmptyList": {
+      "allOf": [
+        {"$ref": "#/$defs/list"},
+        {"minItems": 1}
+      ]
+    }
+  }
+}

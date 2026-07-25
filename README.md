@@ -27,6 +27,8 @@ Key properties:
 - Any candidate change invalidates previous approvals.
 - Repair attempts are bound to an immutable task lineage and stop after three rounds.
 - Run state is recoverable from a project-local snapshot and hash-chained event log.
+- Every new run produces a user-facing requirements baseline and an automatically refreshed delivery process log outside the business worktree.
+- Routine orchestration uses a compact state summary; complete Agent results remain in immutable audit artifacts and are loaded only for recovery or evidence inspection.
 - Every role can recall its own project history through a temporary role-bound capability and can propose durable memory without accessing another role.
 - Brief recording validates the installed role-memory script, and every initial, retry, or repair dispatch requires a fresh role-bound capability. Missing, reused, expired, revoked, fabricated, or cross-role capabilities fail closed, while an empty role history remains valid.
 - Accepted specialist results must report successful memory recall counts without exposing the capability, query, or recalled content.
@@ -56,7 +58,7 @@ The six specialist agents do not form a mandatory linear pipeline. A localized l
 
 The deterministic selector chooses the smallest safe profile. A user may request a higher profile, but neither the user request nor the main agent may lower it below detected risk. Legacy runs without a stored profile remain strict.
 
-`workflow_state.py init` accepts `--profile auto` plus a JSON `--risk-signals` object and reruns the selector before freezing the run. With no risk signals, a new CLI run resolves to `lite`.
+`workflow_state.py init` accepts `--profile auto`, a JSON `--risk-signals` object, and `--document-language en|zh-CN`. It reruns the selector before freezing the run and initializes the user-facing process log. With no risk signals, a new CLI run resolves to `lite`.
 
 ## Requirements
 
@@ -131,7 +133,7 @@ The main agent performs these core steps:
 
 1. Initialize or upgrade the six managed agent templates.
 2. Verify that the project is a clean Git worktree.
-3. Clarify requirements and define observable acceptance criteria.
+3. Clarify requirements, freeze a user-facing `requirements.md`, and define observable acceptance criteria.
 4. Select and freeze the smallest safe execution profile, then route only its required specialist roles.
 5. Create an integration worktree and optional independent task worktrees.
 6. Route browser access explicitly: Codex Browser facts are collected by the main agent before dispatch and independently adjudicated by the tester; direct providers stay with the specialist.
@@ -141,6 +143,8 @@ The main agent performs these core steps:
 10. Freeze the integration worktree’s real HEAD as the candidate.
 11. Record same-SHA gates: one combined quality result for `lite`, or independent parallel tester and reviewer results for `standard` and `strict`.
 12. Finish only after every planned task is done and both gates pass, or after the user explicitly accepts each current failed gate.
+
+The state script also maintains `process-log.md` from audited events. Both user-facing Markdown files live under the shared run directory, so every worktree can read them without changing the business candidate. Use compact `summary` for normal coordination and full `show` only for recovery or audit.
 
 ## Candidate and Dual-Gate Approval
 
@@ -191,6 +195,9 @@ events.jsonl
 plan.json
 routing.json
 worktrees.json
+requirements.json
+requirements.md
+process-log.md
 briefs/
 artifacts/
 attempts/
