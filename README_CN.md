@@ -87,7 +87,7 @@ cp -R ./superflow ~/.codex/skills/superflow
 GitHub Release 发布包包含可直接安装的顶层 `superflow/` 目录：
 
 ~~~bash
-unzip superflow-v0.2.3.zip -d ~/.codex/skills
+unzip superflow-v0.2.4.zip -d ~/.codex/skills
 ~~~
 
 ## 快速开始

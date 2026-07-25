@@ -139,4 +139,6 @@ Every specialist result includes successful `memoryRecall` metadata and `memoryW
 - `blocked`: missing dependency, permission, tool, decision, or external condition.
 - `failed`: the current attempt cannot continue.
 
+For tester and reviewer results, top-level status reports whether the assigned quality evaluation completed, not whether the candidate passed. A completed evaluation returns `status=success` even when failed commands, failed verdicts, defects, or blocking findings derive gate `FAIL`. Use `status=failed` only when the specialist execution itself cannot complete. The main agent records a result that confuses these meanings as rejected and redispatches the same quality role; it never modifies Superflow, repeats the quality work, or treats the contract error as a gate deadlock.
+
 When user input is needed, return `blocked` or `partial` with concerns and a workflow update request; do not ask the user directly.

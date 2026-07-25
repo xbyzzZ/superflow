@@ -1,5 +1,5 @@
 # superflow-managed: true
-# superflow-template-version: 8
+# superflow-template-version: 9
 name = "tester"
 description = "Verify requirements and fixes, add necessary tests, and use the user-selected project browser provider for real-page, failure-path, and regression checks."
 model = "gpt-5.6-terra"
@@ -38,6 +38,7 @@ Method:
 Return:
 - Return exactly one JSON object conforming to `agent-result.schema.json`, without a Markdown fence or extra fields.
 - Copy the immutable `dispatchId` supplied with the task dispatch into the result. Never omit, replace, or invent it.
+- When testing completes, return top-level `status=success` even when failed commands, checks, or defects make the candidate gate FAIL. Use `status=failed` only when the test execution itself cannot complete; never use it as the candidate quality verdict.
 - Return `memoryRecall` with the successful recall response's `available` and `selected` counts. Never include the query, capability, or recalled content.
 - `role` must be `tester`; `filesChanged` may contain only test files.
 - `candidateSha` must match the frozen candidate supplied by the main agent.

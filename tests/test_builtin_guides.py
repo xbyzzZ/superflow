@@ -267,6 +267,25 @@ class BuiltinGuidesTests(unittest.TestCase):
             self.assertIn("consistency", content)
             self.assertIn("trigger", content)
 
+    def test_completed_quality_failure_uses_success_execution_status(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        role_contracts = (ROOT / "references" / "role-contracts.md").read_text(
+            encoding="utf-8"
+        )
+        tester = (
+            ROOT / "assets" / "agent-templates" / "tester.toml"
+        ).read_text(encoding="utf-8")
+        reviewer = (
+            ROOT / "assets" / "agent-templates" / "code-reviewer.toml"
+        ).read_text(encoding="utf-8")
+        for content in (skill, role_contracts, tester, reviewer):
+            self.assertIn("status=success", content)
+            self.assertIn("gate", content)
+            self.assertIn("FAIL", content)
+        self.assertIn("record the attempt as rejected", skill)
+        self.assertIn("never use it as the candidate quality verdict", tester)
+        self.assertIn("never use it as the candidate quality verdict", reviewer)
+
     def test_product_rules_require_scope_and_observable_acceptance(self) -> None:
         product = (
             ROOT / "references" / "product-management-rules.md"

@@ -368,16 +368,42 @@ def check_policy(
             result, tools, require_success, expected_provider
         ):
             add("tool_evidence", message)
+    quality_role = role in {"tester", "code-reviewer"}
+    verification = result.get("verification", {})
+    quality_candidate_failed = (
+        quality_role
+        and result.get("status") == "success"
+        and (
+            verification.get("status") != "passed"
+            or any(
+                value not in {"pass", "not-applicable"}
+                for value in verification.get("verdicts", {}).values()
+            )
+            or any(
+                isinstance(item, dict) and item.get("severity") != "info"
+                for item in result.get("findings", [])
+            )
+            or any(
+                isinstance(item, dict)
+                and (
+                    item.get("status") in {"failed", "partial", "not-run"}
+                    or item.get("exitCode") not in {0, None}
+                )
+                for item in result.get("commandsRun", [])
+            )
+        )
+    )
     for item in result.get("evidence", []):
         if (
             isinstance(item, dict)
             and item.get("status") == "success"
+            and not quality_candidate_failed
             and NEGATIVE_EVIDENCE.search(f"{item.get('reference', '')} {item.get('detail', '')}")
         ):
             add("evidence_consistency", "Successful evidence contains an explicit failure signal")
     _validate_external_evidence_provenance(result, expected_role, add)
 
-    if result.get("status") == "success":
+    if result.get("status") == "success" and not quality_role:
         verification = result.get("verification", {})
         if verification.get("status") != "passed":
             add("result_consistency", "A success result requires passed verification")
@@ -391,25 +417,23 @@ def check_policy(
             for item in result.get("findings", [])
         ):
             add("result_consistency", "A success result must not contain a high-severity finding")
-        if role in {"tester", "code-reviewer"}:
-            if not verification.get("checks"):
-                add("gate_evidence", "A gate PASS requires at least one successful verification check")
-            if not any(item.get("status") == "success" for item in result.get("evidence", [])):
-                add("gate_evidence", "A gate PASS requires at least one successful locatable evidence item")
-        if role == "tester" and not any(
-            item.get("status") == "passed" and item.get("exitCode") == 0
-            for item in result.get("commandsRun", [])
-        ):
-            add("gate_evidence", "A tester PASS requires at least one successful test command")
-        if role in {"tester", "code-reviewer"} and any(
-            item.get("status") in {"failed", "partial", "not-run"}
-            or item.get("exitCode") not in {0, None}
-            for item in result.get("commandsRun", [])
+    if result.get("status") == "success" and quality_role:
+        verification = result.get("verification", {})
+        if not verification.get("checks"):
+            add("gate_evidence", "A completed quality evaluation requires verification checks")
+        if not any(
+            item.get("status") == "success"
+            for item in result.get("evidence", [])
             if isinstance(item, dict)
         ):
             add(
-                "failed_gate_command",
-                "A gate PASS cannot contain a failed, partial, skipped, or nonzero command",
+                "gate_evidence",
+                "A completed quality evaluation requires locatable evidence",
+            )
+        if role == "tester" and not result.get("commandsRun"):
+            add(
+                "gate_evidence",
+                "A completed tester evaluation requires at least one test command",
             )
 
     if role in {"tester", "code-reviewer"}:

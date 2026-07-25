@@ -349,7 +349,7 @@ class PolicyCheckTests(unittest.TestCase):
         self.assertIn("schema", codes)
         self.assertIn("gate_evidence", codes)
 
-    def test_gate_pass_rejects_any_failed_command(self) -> None:
+    def test_completed_quality_evaluation_accepts_failed_command(self) -> None:
         result = base_result(
             role="tester",
             filesChanged=[],
@@ -368,6 +368,34 @@ class PolicyCheckTests(unittest.TestCase):
                     "summary": "Type checking failed in a dependency",
                 },
             ],
+            verification={
+                "status": "failed",
+                "checks": [
+                    {
+                        "name": "typecheck",
+                        "status": "failed",
+                        "details": "Type checking failed",
+                    }
+                ],
+                "verdicts": {
+                    "spec": "pass",
+                    "correctness": "fail",
+                    "consistency": "unknown",
+                },
+            },
+            workflowUpdateRequest={
+                "action": "request-repair",
+                "targetId": "task-1",
+                "reason": "Repair the failed type check",
+            },
+            evidence=[
+                {
+                    "type": "file",
+                    "status": "success",
+                    "reference": "typecheck.log",
+                    "detail": "The captured output proves that type checking failed",
+                }
+            ],
         )
         checked = self.check(
             result,
@@ -375,10 +403,7 @@ class PolicyCheckTests(unittest.TestCase):
             expected_task="task-1",
             expected_candidate=SHA,
         )
-        self.assertIn(
-            "failed_gate_command",
-            {item["code"] for item in checked["violations"]},
-        )
+        self.assertTrue(checked["ok"], checked["violations"])
 
     def test_browser_evidence_requires_collector_and_adjudicator_provenance(self) -> None:
         result = base_result(

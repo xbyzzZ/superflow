@@ -96,7 +96,7 @@ class WorkflowStateTests(unittest.TestCase):
         return {
             "role": role,
             "taskId": task_id,
-            "status": "success" if passed else "failed",
+            "status": "success",
             "summary": "Gate passed" if passed else "Gate failed",
             "filesChanged": [],
             "commandsRun": (
@@ -412,6 +412,113 @@ class WorkflowStateTests(unittest.TestCase):
                 len(__import__("json").dumps(result)),
             )
         self.assertTrue(store._both_gates_pass(store.load()))
+
+    def test_contracted_failed_quality_gate_enters_repair_lineage(self) -> None:
+        task = {
+            **contracted_task(),
+            "role": "code-reviewer",
+            "authorizedPaths": [],
+        }
+        store = workflow_state.WorkflowState.create(
+            self.project,
+            [task],
+            "sf-20260724T010222Z-1234abe0",
+            require_contract=True,
+            profile="lite",
+        )
+        store.register_worktree(self.project, "main", "HEAD")
+        for status in ("preflight", "discovery", "requirements_ready", "planned"):
+            store.transition(status)
+        store.transition("implementing")
+        store.transition("verifying", "t1")
+        store.set_candidate(self.sha_one)
+        store.record_brief("t1", self.valid_brief(store, role="code-reviewer"))
+        snapshot = store._git_snapshot()
+        dispatch = store.record_dispatch(
+            "t1",
+            "code-reviewer",
+            "failed-quality-session",
+            snapshot,
+            self.memory_capability(store, role="code-reviewer"),
+        )
+        result = self.gate_result("code-reviewer", "FAIL", self.sha_one)
+        result["dispatchId"] = dispatch["dispatch_id"]
+        result["evidence"] = [
+            item for item in result["evidence"] if item["type"] != "codegraph"
+        ]
+        store.record_attempt(
+            "t1",
+            "code-reviewer",
+            "initial",
+            "accepted",
+            result,
+            snapshot,
+            snapshot,
+            "The completed review result passed contract validation",
+            dispatch["dispatch_id"],
+        )
+
+        state = store.record_gate(
+            "review",
+            self.sha_one,
+            "t1",
+            result,
+            snapshot,
+            snapshot,
+            [],
+        )
+
+        self.assertEqual(state["gates"]["review"]["result"], "FAIL")
+        self.assertEqual(state["pending_repair"]["task_id"], "t1")
+        self.assertEqual(state["pending_repair"]["gate"], "review")
+
+    def test_misclassified_quality_failure_has_actionable_error(self) -> None:
+        task = {
+            **contracted_task(),
+            "role": "code-reviewer",
+            "authorizedPaths": [],
+        }
+        store = workflow_state.WorkflowState.create(
+            self.project,
+            [task],
+            "sf-20260724T010223Z-1234abe1",
+            require_contract=True,
+            profile="lite",
+        )
+        store.register_worktree(self.project, "main", "HEAD")
+        for status in ("preflight", "discovery", "requirements_ready", "planned"):
+            store.transition(status)
+        store.transition("implementing")
+        store.transition("verifying", "t1")
+        store.set_candidate(self.sha_one)
+        store.record_brief("t1", self.valid_brief(store, role="code-reviewer"))
+        snapshot = store._git_snapshot()
+        dispatch = store.record_dispatch(
+            "t1",
+            "code-reviewer",
+            "misclassified-quality-session",
+            snapshot,
+            self.memory_capability(store, role="code-reviewer"),
+        )
+        result = self.gate_result("code-reviewer", "FAIL", self.sha_one)
+        result["dispatchId"] = dispatch["dispatch_id"]
+        result["status"] = "failed"
+
+        with self.assertRaisesRegex(
+            workflow_state.StateError,
+            "completed quality evaluation must use status='success'",
+        ):
+            store.record_attempt(
+                "t1",
+                "code-reviewer",
+                "initial",
+                "accepted",
+                result,
+                snapshot,
+                snapshot,
+                "The review found blocking defects",
+                dispatch["dispatch_id"],
+            )
 
     def test_browser_gate_uses_shared_project_provider(self) -> None:
         self.advance_to_verifying()

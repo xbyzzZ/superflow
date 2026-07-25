@@ -192,6 +192,8 @@ Dispatch is a binding protocol, not a notification:
 7. wait for the dispatched agents; while any dispatch is `waiting`, do not edit files, run project commands, inspect the implementation with CodeGraph, operate browser or prototype tools, implement, test, review, commit, cherry-pick, change task status, freeze a candidate, record a gate, or advance the workflow;
 8. after a terminal result, record the attempt against the same dispatch ID before validating, integrating, retrying, or continuing.
 
+For tester and reviewer results, top-level `status=success` means the quality evaluation completed; failed checks, verdicts, defects, or findings separately derive gate `FAIL`. If a completed quality evaluation incorrectly uses `status=failed` to describe the candidate, record the attempt as rejected and redispatch the same quality role with the contract correction. Do not modify Superflow, repeat the quality work, or ask the user to authorize an unrelated repair.
+
 ```bash
 python3 <superflow>/scripts/workflow_state.py --project <task-worktree> \
   record-dispatch <run-id> <task-id> frontend-developer \

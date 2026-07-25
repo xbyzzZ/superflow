@@ -1209,9 +1209,24 @@ class WorkflowState:
                 )
         checked: dict[str, Any] | None = None
         if outcome == "accepted":
-            if result.get("dispatchId") != dispatch_id or result.get("status") != "success":
+            if result.get("dispatchId") != dispatch_id:
                 raise StateError(
-                    "An accepted attempt requires a successful result bound to its dispatch"
+                    "An accepted attempt requires a result bound to its dispatch"
+                )
+            if (
+                role in {"tester", "code-reviewer"}
+                and result.get("status") == "failed"
+            ):
+                raise StateError(
+                    "A completed quality evaluation must use status='success' even when "
+                    "failed checks, verdicts, or findings derive gate FAIL; status='failed' "
+                    "means the specialist execution itself could not complete. Record this "
+                    "malformed result as rejected and redispatch the same quality role."
+                )
+            if result.get("status") != "success":
+                raise StateError(
+                    "An accepted attempt requires status='success'; partial, blocked, or "
+                    "failed specialist execution must be recorded as rejected or blocked"
                 )
             ui = role == "ui-designer"
             browser = any(
