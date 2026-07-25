@@ -424,6 +424,27 @@ class PolicyCheckTests(unittest.TestCase):
             {item["code"] for item in checked["violations"]},
         )
 
+    def test_frontend_may_request_unavailable_direct_browser(self) -> None:
+        result = base_result(
+            status="blocked",
+            filesChanged=[],
+            browserEvidenceRequest={
+                "provider": "chrome-mcp",
+                "page": "http://localhost:8080/example",
+                "actions": ["Open the page", "Reproduce the defect"],
+                "viewports": ["1280x800"],
+                "requiredArtifacts": ["screenshot", "console-log"],
+                "reason": "The selected direct provider is unavailable in this session",
+            },
+        )
+        checked = self.check(
+            result,
+            expected_role="frontend-developer",
+            expected_task="task-1",
+            expected_browser_provider="chrome-mcp",
+        )
+        self.assertTrue(checked["ok"], checked["violations"])
+
     def test_full_schema_is_enforced(self) -> None:
         result = base_result(verification={})
         checked = self.check(result)

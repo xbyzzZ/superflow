@@ -66,7 +66,7 @@ brief recorded
 
 While any dispatch is `waiting`, the main agent is coordination-only. State transitions, task updates, candidate changes, gate or risk recording, finish, commits, and cherry-picks fail closed. Project execution and professional role work are also prohibited by contract. Additional independent dispatches may be recorded before the main agent waits.
 
-Browser relay never runs inside this waiting interval. A `codex-browser` task records main-agent browser evidence before dispatch. If a direct provider is unavailable to the specialist, that dispatch first closes with a blocked or partial `browserEvidenceRequest`; the main agent then collects the requested facts and records a new dispatch containing an immutable copied artifact and SHA-256.
+Main-agent browser relay is disabled. A browser-required task cannot record a brief with the main-only `codex-browser` provider and must pause until the user selects a specialist-direct provider for a new run. Frontend and tester roles may use that provider directly for their separate responsibilities. If it is unavailable, record the affected role's blocked evidence request and remediate the provider rather than asking the main agent to browse.
 
 A new run freezes its `lite`, `standard`, or `strict` profile plus project browser and UI-provider selection. New CLI runs default to `lite`; the deterministic profile selector raises risk-triggered work to `standard` or `strict`. Legacy states without a profile are interpreted as `strict`. If project configuration changes, the old run may only become `blocked` or `cancelled`.
 
@@ -105,8 +105,6 @@ python3 scripts/workflow_state.py --project <repo> record-gate \
 python3 scripts/workflow_state.py --project <repo> record-risk \
   <run-id> test --accepted-by '<user>' --reason '<reason>'
 ```
-
-For a browser relay, add `--browser-evidence <evidence.json>`. The source JSON must identify the frozen provider, `collectorRole=product-manager`, task, browser session, page, actions, result, capture time, and a non-empty `artifacts` array. Each artifact names a supported kind and source path. The state script copies every artifact plus a canonical manifest into the shared run ledger, verifies their SHA-256 values at acceptance, and returns the immutable manifest path and digest. Supply that returned metadata to the new specialist dispatch as `browserEvidence`.
 
 `plan.json` is an array of complete task contracts. Each task requires `id`, `title`, `role`, `dependencies`, `authorizedPaths`, `acceptanceCriteria`, `verificationCommands`, `observableResults`, and `status`; dependencies must form an acyclic graph.
 

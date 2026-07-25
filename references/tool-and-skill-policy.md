@@ -64,13 +64,13 @@ Unavailable tools, missing authorization, missing active files, or save failures
 For navigation, clicks, input, screenshots, DOM, visual, responsive, or real-page acceptance:
 
 - read `browser.provider` from project configuration;
-- derive `browserAccessMode=main-relay` for `codex-browser`; the main agent uses the Codex Browser plugin before dispatch and supplies the copied, SHA-256-bound artifact to the specialist;
+- derive `browserAccessMode=main-only` for `codex-browser`; do not use it for delegated real-page acceptance because the main agent must not operate a browser on the tester's behalf;
 - use the selected Chrome MCP for `chrome-mcp`;
 - follow details exactly for `custom`;
 - read current provider instructions and verify connection, page context, and login state;
 - record `type=browser` evidence with the exact provider, page, action, result, collector role, task, session, artifact SHA-256, and adjudicator.
 
-For `specialist-direct` providers, a specialist that lacks the provider returns a structured browser evidence request and closes its dispatch. The main agent may relay only the requested facts, only after the attempt is recorded, and only in a new dispatch. It does not decide the test verdict. Never operate any browser while a specialist dispatch is waiting.
+If real-page work is required with `main-only`, block before dispatch and ask the user to select a specialist-direct provider for a new run. Frontend developers may use a direct provider for reproduction, debugging, and implementation self-checks; testers independently use it for final acceptance. If the provider is unavailable, either role returns a structured browser evidence request and closes its dispatch; request provider remediation rather than making the main agent relay browser facts.
 
 Request user login when authentication blocks work. Do not bypass the selection with standalone Playwright or Selenium, Computer Use, shell-launched browsers, or another provider.
 

@@ -18,7 +18,7 @@ import build_release  # noqa: E402
 
 class ReleasePackageTests(unittest.TestCase):
     def test_version_is_semantic(self) -> None:
-        self.assertEqual(build_release.read_version(), "0.2.0")
+        self.assertEqual(build_release.read_version(), "0.2.1")
 
     def test_project_metadata_identifies_the_author(self) -> None:
         license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")

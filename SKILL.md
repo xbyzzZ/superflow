@@ -44,7 +44,9 @@ Read built-in professional guides by phase:
 
 Resolve `git rev-parse --git-path info/superflow.json`. When configuration is absent, ask the user before any Superflow write:
 
-- browser: Codex Browser plugin (`codex-browser`), Chrome MCP (`chrome-mcp`), or user-defined (`custom`);
+- browser: Chrome MCP (`chrome-mcp`), a user-defined specialist-direct provider (`custom`), or the main-only Codex Browser plugin (`codex-browser`) for work that does not require delegated real-page acceptance.
+
+Recommend `chrome-mcp` for normal delivery because frontend and tester subagents can operate it directly. Explain before selection that `codex-browser` is main-agent scoped: Superflow will not make the main agent operate it on behalf of a specialist, and any browser-required task will pause until the user reconfigures a specialist-direct provider for a new run.
 - UI prototype: Penpot MCP (`penpot-mcp`), Codex Figma plugin (`codex-figma`), or user-defined (`custom`).
 
 For `custom`, also collect exact tool, connection, and success-evidence instructions. Then run:
@@ -173,14 +175,14 @@ python3 <superflow>/scripts/git_workspace.py create-worktree \
 - Every brief is minimal and self-contained. Include only work directory, frozen task facts, paths, acceptance, baseline, result Schema path, execution profile, context controls, tool routing, and the absolute `builtinGuide` for architect, UI, frontend, or backend. Never include the parent conversation or duplicate shared prose.
 - Record the exact brief before dispatch with `workflow_state.py record-brief`. Record every accepted, rejected, blocked, retry, and repair result with `record-attempt`; never overwrite a previous attempt.
 - Put the absolute `roleMemoryScript` in the immutable task brief. Before every dispatch or retry, issue a fresh capability bound to the exact role, run, and task; pass it to `record-dispatch` and supply it to the subagent as `roleMemoryCapability` in the task dispatch wrapper. `record-brief` validates the script and required role guide; `record-dispatch` validates the capability scope and stores only its digest. Never omit, reuse, persist in the brief, or share a capability between roles, tasks, or attempts.
-- Relevant briefs include `browserProvider`, `browserRequired`, the derived `browserAccessMode`, `uiPrototypeProvider`, and custom details. Use `main-relay` for `codex-browser`; use `specialist-direct` for `chrome-mcp` and custom providers.
+- Relevant briefs include `browserProvider`, `browserRequired`, the derived `browserAccessMode`, `uiPrototypeProvider`, and custom details. Use `main-only` for `codex-browser`; use `specialist-direct` for `chrome-mcp` and custom providers. Reject a browser-required brief that uses `main-only`.
 - Set `contextMode=minimal`. Dispatch with no conversation fork. Set `memoryLimit`, `memoryMaxBytes`, and `resultDetail` from the frozen profile: `lite=3/2048/compact`, `standard=5/4096/standard`, `strict=10/8192/full`.
 - Set `codeGraphRequired=true` only for cross-module, call-chain, data-flow, or blast-radius work. A localized `lite` task uses precise search without probing CodeGraph.
 - Snapshot HEAD and refs before and after dispatch. `policy_check.py` may precheck output; gate recording rechecks policy and current repository facts.
 
 Dispatch is a binding protocol, not a notification:
 
-1. prepare the worktree, dependencies, runtime, candidate, brief, and `before` snapshot before dispatch; for a browser-required `codex-browser` task, collect narrowly scoped page facts first and prepare a provenance-complete JSON artifact without adjudicating them;
+1. prepare the worktree, dependencies, runtime, candidate, brief, and `before` snapshot before dispatch; never open or inspect the target page on the specialist's behalf;
 2. reserve the stable subagent session or task handle;
 3. record the dispatch and capture its returned `dispatch_id`;
 4. dispatch with `fork_turns=none` or the platform's equivalent no-parent-conversation option; supply only the brief, execution wrapper, and required artifact paths;
@@ -202,7 +204,7 @@ python3 <superflow>/scripts/workflow_state.py --project <task-worktree> \
   --reason 'Schema, policy, and repository evidence passed'
 ```
 
-If an agent fails to start, terminates, or times out, record a `blocked` or `rejected` attempt for that dispatch before retrying, blocking, or cancelling the run. For `codex-browser`, record the main-agent artifact before dispatch and pass `--browser-evidence <artifact.json>` to `record-dispatch`. For a direct provider unavailable to the specialist, require a structured `browserEvidenceRequest`, record that attempt to release the waiting lock, collect only the requested facts, and start a new dispatch with the copied artifact. This relay never authorizes the main agent to implement, review, test, adjudicate, or operate a browser while any dispatch is waiting.
+If an agent fails to start, terminates, or times out, record a `blocked` or `rejected` attempt for that dispatch before retrying, blocking, or cancelling the run. If a browser-required task uses `codex-browser`, block before dispatch and ask the user to reconfigure `chrome-mcp` or a specialist-direct custom provider for a new run. Frontend developers may use the selected direct browser for reproduction, debugging, and self-checks; testers use it independently for final acceptance. If a direct provider is unavailable to either role, record its structured `browserEvidenceRequest` as blocked and request provider remediation; the main agent must not operate a browser on the specialist's behalf.
 
 ```bash
 python3 <superflow>/scripts/policy_check.py \

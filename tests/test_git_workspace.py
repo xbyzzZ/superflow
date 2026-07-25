@@ -172,7 +172,7 @@ class GitWorkspaceTests(unittest.TestCase):
                 "observableResults": ["The focused test passes"],
                 "browserProvider": "codex-browser",
                 "browserRequired": False,
-                "browserAccessMode": "main-relay",
+                "browserAccessMode": "main-only",
                 "executionProfile": "strict",
                 "contextMode": "minimal",
                 "memoryLimit": 10,

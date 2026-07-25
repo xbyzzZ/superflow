@@ -245,10 +245,13 @@ def check_policy(
 
     browser_request = result.get("browserEvidenceRequest")
     if browser_request is not None:
-        if role != "tester" or result.get("status") not in {"blocked", "partial"}:
+        if (
+            role not in {"frontend-developer", "tester"}
+            or result.get("status") not in {"blocked", "partial"}
+        ):
             add(
                 "browser_evidence_request",
-                "Only a blocked or partial tester result may request browser evidence",
+                "Only a blocked or partial frontend or tester result may request browser evidence",
             )
         if (
             expected_browser_provider is not None

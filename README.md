@@ -90,7 +90,7 @@ Restart Codex if the current session does not discover the Skill. You may also i
 GitHub release archives contain an installable top-level `superflow/` directory:
 
 ~~~bash
-unzip superflow-v0.2.0.zip -d ~/.codex/skills
+unzip superflow-v0.2.1.zip -d ~/.codex/skills
 ~~~
 
 ## Quick Start
@@ -105,7 +105,7 @@ On first use, the main agent must ask the user to select browser and UI prototyp
 
 ~~~bash
 python3 <superflow>/scripts/init_project.py --project "$PWD" \
-  --browser-provider codex-browser \
+  --browser-provider chrome-mcp \
   --ui-provider penpot-mcp
 ~~~
 
@@ -206,7 +206,7 @@ gates/
 
 Each planned task freezes its role, dependencies, authorized paths, acceptance criteria, exact verification commands, and observable results. Briefs, dispatch routing, worktree registrations, every accepted or rejected attempt, and candidate-bound gates are retained as audit artifacts. A waiting dispatch is bound to its task, role, worktree, brief, snapshot, and real subagent session; state progression and Git writes remain locked until its result is recorded. `state.json` is validated against the bundled Schema and cross-field invariants. `events.jsonl` is an append-only revision chain with state hashes and event-to-event hashes. Writes use a process lock and revision compare-and-swap to reject stale concurrent updates.
 
-Browser access is also frozen in the brief. `codex-browser` uses a main-agent relay because the in-app browser session is not assumed to exist in a subagent: the main agent captures facts before dispatch, the state script copies and hashes the artifact, and the tester independently adjudicates it. `chrome-mcp` and custom providers are specialist-direct by default. If a direct provider is unavailable, the specialist closes its dispatch with a structured evidence request; the main agent may collect the requested facts only after the waiting lock is released and must start a new dispatch.
+Browser access is also frozen in the brief. `chrome-mcp` and custom specialist-direct providers can be used by frontend agents for reproduction, debugging, and self-checks, then independently by tester agents for final acceptance. `codex-browser` is main-agent scoped and is not used for delegated browser work; a browser-required task pauses until the user selects a specialist-direct provider for a new run. The main agent never browses on behalf of a specialist.
 
 ## Role-Isolated Memory
 

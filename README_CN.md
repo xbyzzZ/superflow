@@ -87,7 +87,7 @@ cp -R ./superflow ~/.codex/skills/superflow
 GitHub Release 发布包包含可直接安装的顶层 `superflow/` 目录：
 
 ~~~bash
-unzip superflow-v0.2.0.zip -d ~/.codex/skills
+unzip superflow-v0.2.1.zip -d ~/.codex/skills
 ~~~
 
 ## 快速开始
@@ -102,7 +102,7 @@ unzip superflow-v0.2.0.zip -d ~/.codex/skills
 
 ~~~bash
 python3 <superflow>/scripts/init_project.py --project "$PWD" \
-  --browser-provider codex-browser \
+  --browser-provider chrome-mcp \
   --ui-provider penpot-mcp
 ~~~
 
@@ -181,7 +181,7 @@ python3 <superflow>/scripts/workflow_state.py \
 
 状态脚本会检查 Agent 角色、任务 ID、candidate SHA、Schema、授权路径、Git 权限、项目工具配置快照、工具 evidence provider、验证检查、测试命令、findings 和当前仓库事实。
 
-浏览器权限也会被冻结到任务 brief 中。`codex-browser` 使用主代理中继模式：主代理必须在 dispatch 之前采集页面事实，状态脚本将证据复制到共享账本并绑定 SHA-256，tester 子代理只负责独立裁决。`chrome-mcp` 和自定义浏览器默认由子代理直接操作；若子代理当前会话不可用，必须先以结构化证据请求结束本次 dispatch，主代理只能在等待锁释放后采集所请求的事实，并通过新的 dispatch 交回 tester。主代理不得在子代理仍处于等待状态时操作浏览器。
+浏览器权限也会被冻结到任务 brief 中。`chrome-mcp` 和可由专业角色直连的自定义浏览器，可由前端角色用于复现、调试和实现自检，再由测试角色独立完成最终验收。`codex-browser` 仅属于主代理，不能用于委派后的浏览器工作；需要真实页面操作时，流程会暂停并要求用户为新运行改选专业角色可直连的 provider。主代理不会代替专业角色操作浏览器。
 
 ## 可恢复状态
 
