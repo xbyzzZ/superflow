@@ -21,6 +21,10 @@ from typing import Any
 from schema_validation import SchemaValidationError, validate
 from policy_check import check_policy
 from project_config import ProjectConfigError, read_config
+from role_memory import (
+    MemoryError as RoleMemoryError,
+    resolve_capability,
+)
 
 
 GATES = {"test", "review"}
@@ -147,6 +151,12 @@ DISPATCH_PHASES = {
     "code-reviewer": {"verifying", "reviewing"},
 }
 TERMINAL_STATES = {"blocked", "cancelled", "finished"}
+BUILTIN_GUIDES = {
+    "architect": "architecture-design-rules.md",
+    "ui-designer": "ui-ux-design-rules.md",
+    "frontend-developer": "frontend-engineering-rules.md",
+    "backend-developer": "backend-engineering-rules.md",
+}
 TASK_CONTRACT_FIELDS = {
     "role",
     "dependencies",
@@ -625,6 +635,59 @@ class WorkflowState:
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
+    def _validate_brief_static_context(
+        self,
+        role: str,
+        brief: dict[str, Any],
+    ) -> None:
+        expected_script = Path(__file__).resolve().with_name("role_memory.py")
+        script_value = brief.get("roleMemoryScript")
+        if (
+            not isinstance(script_value, str)
+            or not Path(script_value).is_absolute()
+            or Path(script_value).resolve() != expected_script
+            or not expected_script.is_file()
+        ):
+            raise StateError(
+                "The task brief role memory script does not match this Superflow installation"
+            )
+        guide_name = BUILTIN_GUIDES.get(role)
+        if guide_name is None:
+            return
+        expected_guide = Path(__file__).resolve().parents[1] / "references" / guide_name
+        guide_value = brief.get("builtinGuide")
+        if (
+            not isinstance(guide_value, str)
+            or not Path(guide_value).is_absolute()
+            or Path(guide_value).resolve() != expected_guide
+            or not expected_guide.is_file()
+        ):
+            raise StateError(
+                "The task brief built-in guide does not match the assigned specialist role"
+            )
+
+    def _validate_dispatch_memory_capability(
+        self,
+        task_id: str,
+        role: str,
+        capability: Any,
+    ) -> str:
+        try:
+            scope = resolve_capability(self.project, capability)
+        except RoleMemoryError as exc:
+            raise StateError(
+                f"The task dispatch role memory capability is invalid: {exc}"
+            ) from exc
+        if (
+            scope.get("role") != role
+            or scope.get("run_id") != self.run_id
+            or scope.get("task_id") != task_id
+        ):
+            raise StateError(
+                "The task dispatch role memory capability scope does not match its task"
+            )
+        return hashlib.sha256(capability.encode("utf-8")).hexdigest()
+
     def record_brief(self, task_id: str, brief: Any) -> dict[str, Any]:
         state = self.load()
         self._require_mutable(state)
@@ -647,7 +710,10 @@ class WorkflowState:
             "uiPrototypeProvider",
             "beforeSnapshot",
             "resultSchema",
+            "roleMemoryScript",
         }
+        if task["role"] in BUILTIN_GUIDES:
+            required.add("builtinGuide")
         if not isinstance(brief, dict) or set(brief) != required:
             raise StateError("The task brief is incomplete or contains unknown fields")
         if (
@@ -661,6 +727,7 @@ class WorkflowState:
             or brief["observableResults"] != task["observableResults"]
         ):
             raise StateError("The task brief does not match the frozen task contract")
+        self._validate_brief_static_context(task["role"], brief)
         path = self.directory / "briefs" / f"{task_id}.json"
         if path.exists():
             raise StateError("A task brief is immutable once recorded")
@@ -723,6 +790,7 @@ class WorkflowState:
         role: str,
         session_id: str,
         before: Any,
+        memory_capability: Any,
     ) -> dict[str, Any]:
         state = self.load()
         self._require_mutable(state)
@@ -757,6 +825,19 @@ class WorkflowState:
         if not brief_path.is_file():
             raise StateError("Record the immutable task brief before dispatch")
         brief = json.loads(brief_path.read_text(encoding="utf-8"))
+        self._validate_brief_static_context(role, brief)
+        memory_capability_digest = self._validate_dispatch_memory_capability(
+            task_id,
+            role,
+            memory_capability,
+        )
+        if any(
+            item.get("memory_capability_digest") == memory_capability_digest
+            for item in state.get("dispatches", {}).values()
+        ):
+            raise StateError(
+                "The task dispatch role memory capability was already used"
+            )
         if Path(brief.get("workDirectory", "")).resolve() != self.project:
             raise StateError("The task brief workDirectory does not match this worktree")
         worktrees = json.loads(
@@ -774,6 +855,7 @@ class WorkflowState:
             "worktree": str(self.project),
             "before_digest": self._digest(before),
             "brief_digest": self._digest(brief),
+            "memory_capability_digest": memory_capability_digest,
             "started_at": _now(),
             "completed_at": None,
             "attempt_id": None,
@@ -1441,6 +1523,7 @@ def _build_parser() -> argparse.ArgumentParser:
     dispatch.add_argument("role", choices=sorted(DISPATCH_PHASES))
     dispatch.add_argument("--session-id", required=True)
     dispatch.add_argument("--before", required=True, type=_json_argument)
+    dispatch.add_argument("--memory-capability", required=True)
     attempt = sub.add_parser("record-attempt")
     attempt.add_argument("run_id")
     attempt.add_argument("task_id")
@@ -1498,6 +1581,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.role,
                     args.session_id,
                     args.before,
+                    args.memory_capability,
                 )
             elif args.command == "record-attempt":
                 result = store.record_attempt(

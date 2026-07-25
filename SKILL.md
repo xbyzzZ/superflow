@@ -139,7 +139,7 @@ python3 <superflow>/scripts/git_workspace.py create-worktree \
 - Subagents modify only authorized files and never run Git.
 - Every brief is self-contained and includes work directory, paths, acceptance, baseline, result Schema, and the absolute `builtinGuide` for architect, UI, frontend, or backend.
 - Record the exact brief before dispatch with `workflow_state.py record-brief`. Record every accepted, rejected, blocked, retry, and repair result with `record-attempt`; never overwrite a previous attempt.
-- Before dispatch, issue a capability bound to the exact role, run, and task. Include only `roleMemoryScript` and `roleMemoryCapability` in that role's brief. Never reuse or share a capability between roles or tasks.
+- Put the absolute `roleMemoryScript` in the immutable task brief. Before every dispatch or retry, issue a fresh capability bound to the exact role, run, and task; pass it to `record-dispatch` and supply it to the subagent as `roleMemoryCapability` in the task dispatch wrapper. `record-brief` validates the script and required role guide; `record-dispatch` validates the capability scope and stores only its digest. Never omit, reuse, persist in the brief, or share a capability between roles, tasks, or attempts.
 - Relevant briefs include `browserProvider`, `uiPrototypeProvider`, and custom details.
 - Snapshot HEAD and refs before and after dispatch. `policy_check.py` may precheck output; gate recording rechecks policy and current repository facts.
 
@@ -156,7 +156,8 @@ Dispatch is a binding protocol, not a notification:
 ```bash
 python3 <superflow>/scripts/workflow_state.py --project <task-worktree> \
   record-dispatch <run-id> <task-id> frontend-developer \
-  --session-id <reserved-session-id> --before before.json
+  --session-id <reserved-session-id> --before before.json \
+  --memory-capability <fresh-role-memory-capability>
 
 python3 <superflow>/scripts/workflow_state.py --project <task-worktree> \
   record-attempt <run-id> <task-id> frontend-developer initial accepted \
@@ -181,7 +182,7 @@ python3 <superflow>/scripts/policy_check.py \
 
 Add `--ui` for prototype results or `--browser` for real-page results. Provider evidence must match project configuration. Successful browser and prototype evidence names the actual collector role, task, session, artifact SHA-256, and the result role that adjudicated it. The main agent may relay evidence it actually collected, but the tester must identify the main agent as collector instead of claiming collection. Never commit or mark success after a policy failure.
 
-After the result passes Schema and policy checks, ingest its role-bound memory requests, then revoke the capability:
+Require the specialist result to report successful `memoryRecall` metadata without the capability, query, or recalled content. After the result passes Schema and policy checks, ingest its role-bound memory requests, then revoke the capability:
 
 ```bash
 python3 <superflow>/scripts/role_memory.py --project "$PWD" ingest-result \

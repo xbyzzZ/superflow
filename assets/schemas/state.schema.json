@@ -242,6 +242,10 @@
         "worktree": {"type": "string", "minLength": 1},
         "before_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
         "brief_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "memory_capability_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
         "started_at": {"type": "string", "format": "date-time"},
         "completed_at": {
           "oneOf": [

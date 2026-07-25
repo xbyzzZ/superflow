@@ -225,6 +225,21 @@ def check_policy(
         add("identity_context", "The policy check requires the taskId assigned by the primary agent")
     if expected_dispatch is not None and result.get("dispatchId") != expected_dispatch:
         add("identity", "The agent dispatchId does not match the recorded dispatch")
+    if expected_dispatch is not None:
+        recalled = result.get("memoryRecall")
+        if (
+            not isinstance(recalled, dict)
+            or recalled.get("status") != "success"
+            or not isinstance(recalled.get("available"), int)
+            or not isinstance(recalled.get("selected"), int)
+            or recalled["available"] < 0
+            or recalled["selected"] < 0
+            or recalled["selected"] > recalled["available"]
+        ):
+            add(
+                "memory_recall",
+                "A dispatched agent result requires successful role-memory recall metadata",
+            )
     if result.get("status") not in STATUSES:
         add("status", "Invalid agent status")
 

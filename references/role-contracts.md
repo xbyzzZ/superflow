@@ -51,7 +51,7 @@ When a selected provider session is available only to the main agent, a speciali
 Every brief must include:
 
 - `runId`, `taskId`, role, and work directory;
-- absolute `roleMemoryScript` path and a temporary `roleMemoryCapability` bound to the same role, run, and task;
+- absolute `roleMemoryScript` path;
 - objective, background, and acceptance criteria;
 - dependencies and frozen contracts;
 - authorized repository-relative paths and explicit exclusions;
@@ -65,7 +65,9 @@ Every brief must include:
 
 Do not send the full conversation. Put each exact value in the brief once.
 
-The dispatch wrapper additionally supplies the immutable `dispatchId` and stable subagent session or task handle. These execution values are recorded after the brief is frozen and must not be invented by the specialist.
+The dispatch wrapper additionally supplies the immutable `dispatchId`, stable subagent session or task handle, and a fresh `roleMemoryCapability` bound to this role, run, task, and attempt. These execution values are created after the brief is frozen and must not be persisted in the brief, reused, or invented by the specialist.
+
+`record-brief` fails closed unless the role-memory script is the absolute script from the running Superflow installation and every role that consumes a built-in professional guide receives its exact absolute guide path. `record-dispatch` resolves a newly issued capability immediately before each dispatch and records only its SHA-256 digest. An empty recall result is valid; a missing, reused, revoked, expired, fabricated, or cross-role capability is not.
 
 ## Result contract
 
@@ -91,6 +93,11 @@ A subagent returns exactly one Schema-valid JSON object:
   },
   "findings": [],
   "evidence": [],
+  "memoryRecall": {
+    "status": "success",
+    "available": 0,
+    "selected": 0
+  },
   "memoryWriteRequests": [],
   "workflowUpdateRequest": {
     "action": "complete-task",
@@ -103,7 +110,7 @@ A subagent returns exactly one Schema-valid JSON object:
 
 Tester and reviewer also provide `candidateSha`. Every evidence item includes exact `type`, `status`, `reference`, and `detail`; browser and UI-prototype evidence also includes a provider matching project configuration. Successful external evidence additionally records `collectorRole`, `collectorTaskId`, `collectorSession`, `artifactSha256`, and `adjudicatedBy`. When the main agent relays a browser session to the tester, `collectorRole` remains `product-manager` and `adjudicatedBy` is `tester`; the tester must never claim to have collected someone else's evidence. A tool name in prose is not successful evidence. Run `policy_check.py`, then inspect actual files and output.
 
-Every specialist result includes `memoryWriteRequests`, even when empty. A role may propose at most three durable, evidence-backed records for its own future executions. It never names a target role and never directly writes memory. Ingest requests only after the complete result passes Schema and policy checks.
+Every specialist result includes successful `memoryRecall` metadata and `memoryWriteRequests`, even when empty. `available: 0, selected: 0` is a valid first-run recall. A missing or failed recall cannot produce an accepted attempt. A role may propose at most three durable, evidence-backed records for its own future executions. It never names a target role and never directly writes memory. Ingest requests only after the complete result passes Schema and policy checks.
 
 - `success`: role-scoped work completed with evidence, not overall completion.
 - `partial`: useful progress without full acceptance.

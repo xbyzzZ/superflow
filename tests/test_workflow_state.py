@@ -13,6 +13,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import workflow_state  # noqa: E402
 import project_config  # noqa: E402
+import role_memory  # noqa: E402
 
 
 RUN_ID = "sf-20260724T010203Z-1234abcd"
@@ -119,6 +120,11 @@ class WorkflowStateTests(unittest.TestCase):
                 }
             ],
             "memoryWriteRequests": [],
+            "memoryRecall": {
+                "status": "success",
+                "available": 0,
+                "selected": 0,
+            },
             "workflowUpdateRequest": {
                 "action": "none" if passed else "request-repair",
                 "targetId": task_id,
@@ -175,6 +181,11 @@ class WorkflowStateTests(unittest.TestCase):
                 }
             ],
             "memoryWriteRequests": [],
+            "memoryRecall": {
+                "status": "success",
+                "available": 0,
+                "selected": 0,
+            },
             "workflowUpdateRequest": {
                 "action": "complete-task",
                 "targetId": task_id,
@@ -182,6 +193,56 @@ class WorkflowStateTests(unittest.TestCase):
             },
             "concerns": [],
         }
+
+    def valid_brief(
+        self,
+        store: workflow_state.WorkflowState,
+        task_id: str = "t1",
+        role: str = "frontend-developer",
+    ) -> dict:
+        task = next(item for item in store.load()["plan"] if item["id"] == task_id)
+        brief = {
+            "runId": store.run_id,
+            "taskId": task_id,
+            "role": role,
+            "workDirectory": str(self.project),
+            "objective": "Implement the frozen behavior",
+            "dependencies": task["dependencies"],
+            "authorizedPaths": task["authorizedPaths"],
+            "exclusions": [".git", ".codex"],
+            "acceptanceCriteria": task["acceptanceCriteria"],
+            "verificationCommands": task["verificationCommands"],
+            "observableResults": task["observableResults"],
+            "browserProvider": "chrome-mcp",
+            "uiPrototypeProvider": "penpot-mcp",
+            "beforeSnapshot": store._git_snapshot(),
+            "resultSchema": "assets/schemas/agent-result.schema.json",
+            "roleMemoryScript": str((SCRIPTS / "role_memory.py").resolve()),
+        }
+        guide_by_role = {
+            "architect": "architecture-design-rules.md",
+            "ui-designer": "ui-ux-design-rules.md",
+            "frontend-developer": "frontend-engineering-rules.md",
+            "backend-developer": "backend-engineering-rules.md",
+        }
+        if role in guide_by_role:
+            brief["builtinGuide"] = str(
+                (SCRIPTS.parent / "references" / guide_by_role[role]).resolve()
+            )
+        return brief
+
+    def memory_capability(
+        self,
+        store: workflow_state.WorkflowState,
+        role: str = "frontend-developer",
+        task_id: str = "t1",
+    ) -> str:
+        return role_memory.issue_capability(
+            self.project,
+            role,
+            store.run_id,
+            task_id,
+        )["capability"]
 
     def record_gate(
         self, gate: str, verdict: str, sha: str | None = None, task_id: str = "t1"
@@ -587,29 +648,15 @@ class WorkflowStateTests(unittest.TestCase):
         with self.assertRaisesRegex(workflow_state.StateError, "accepted audited attempt"):
             store.set_task("t1", "done")
         snapshot = store._git_snapshot()
-        brief = {
-            "runId": store.run_id,
-            "taskId": "t1",
-            "role": "frontend-developer",
-            "workDirectory": str(self.project),
-            "objective": "Implement the frozen behavior",
-            "dependencies": [],
-            "authorizedPaths": ["src/**", "tests/**"],
-            "exclusions": [".git", ".codex"],
-            "acceptanceCriteria": ["The requested behavior is observable"],
-            "verificationCommands": ["python3 -m unittest"],
-            "observableResults": ["The focused regression test passes"],
-            "browserProvider": "chrome-mcp",
-            "uiPrototypeProvider": "penpot-mcp",
-            "beforeSnapshot": snapshot,
-            "resultSchema": "assets/schemas/agent-result.schema.json",
-        }
+        brief = self.valid_brief(store)
         store.record_brief("t1", brief)
+        first_capability = self.memory_capability(store)
         dispatch = store.record_dispatch(
             "t1",
             "frontend-developer",
             "agent-session-1",
             snapshot,
+            first_capability,
         )
         store.record_attempt(
             "t1",
@@ -628,11 +675,20 @@ class WorkflowStateTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(workflow_state.StateError, "accepted audited attempt"):
             store.set_task("t1", "done")
+        with self.assertRaisesRegex(workflow_state.StateError, "already used"):
+            store.record_dispatch(
+                "t1",
+                "frontend-developer",
+                "agent-session-reused-memory",
+                snapshot,
+                first_capability,
+            )
         retry_dispatch = store.record_dispatch(
             "t1",
             "frontend-developer",
             "agent-session-2",
             snapshot,
+            self.memory_capability(store),
         )
         store.record_attempt(
             "t1",
@@ -663,29 +719,14 @@ class WorkflowStateTests(unittest.TestCase):
             store.transition(status)
         store.transition("implementing", "t1")
         snapshot = store._git_snapshot()
-        brief = {
-            "runId": store.run_id,
-            "taskId": "t1",
-            "role": "frontend-developer",
-            "workDirectory": str(self.project),
-            "objective": "Implement the frozen behavior",
-            "dependencies": [],
-            "authorizedPaths": ["src/**", "tests/**"],
-            "exclusions": [".git", ".codex"],
-            "acceptanceCriteria": ["The requested behavior is observable"],
-            "verificationCommands": ["python3 -m unittest"],
-            "observableResults": ["The focused regression test passes"],
-            "browserProvider": "chrome-mcp",
-            "uiPrototypeProvider": "penpot-mcp",
-            "beforeSnapshot": snapshot,
-            "resultSchema": "assets/schemas/agent-result.schema.json",
-        }
+        brief = self.valid_brief(store)
         store.record_brief("t1", brief)
         dispatch = store.record_dispatch(
             "t1",
             "frontend-developer",
             "agent-session-waiting",
             snapshot,
+            self.memory_capability(store),
         )
 
         with self.assertRaisesRegex(workflow_state.StateError, "waiting"):
@@ -723,6 +764,77 @@ class WorkflowStateTests(unittest.TestCase):
             "accepted",
         )
         store.set_task("t1", "done")
+
+    def test_brief_and_dispatch_require_role_memory_and_builtin_guide(self) -> None:
+        store = workflow_state.WorkflowState.create(
+            self.project,
+            [contracted_task()],
+            "sf-20260724T010219Z-1234abdd",
+            require_contract=True,
+        )
+        valid = self.valid_brief(store)
+
+        for field in ("roleMemoryScript", "builtinGuide"):
+            with self.subTest(missing=field):
+                incomplete = {key: value for key, value in valid.items() if key != field}
+                with self.assertRaisesRegex(workflow_state.StateError, "incomplete"):
+                    store.record_brief("t1", incomplete)
+
+        wrong_script = dict(valid)
+        wrong_script["roleMemoryScript"] = str(
+            (SCRIPTS / "workflow_state.py").resolve()
+        )
+        with self.assertRaisesRegex(workflow_state.StateError, "memory script"):
+            store.record_brief("t1", wrong_script)
+
+        wrong_guide = dict(valid)
+        wrong_guide["builtinGuide"] = str(
+            (SCRIPTS.parent / "references" / "backend-engineering-rules.md").resolve()
+        )
+        with self.assertRaisesRegex(workflow_state.StateError, "built-in guide"):
+            store.record_brief("t1", wrong_guide)
+
+        recorded = store.record_brief("t1", valid)
+        self.assertEqual(recorded["digest"], store._digest(valid))
+        store.register_worktree(self.project, "main", "HEAD")
+        for status in ("preflight", "discovery", "requirements_ready", "planned"):
+            store.transition(status)
+        store.transition("implementing", "t1")
+        wrong_role_capability = self.memory_capability(
+            store,
+            role="backend-developer",
+        )
+        with self.assertRaisesRegex(workflow_state.StateError, "capability scope"):
+            store.record_dispatch(
+                "t1",
+                "frontend-developer",
+                "agent-session-wrong-memory-role",
+                store._git_snapshot(),
+                wrong_role_capability,
+            )
+        revoked_capability = self.memory_capability(store)
+        role_memory.revoke_capability(
+            self.project,
+            revoked_capability,
+        )
+        with self.assertRaisesRegex(workflow_state.StateError, "capability is invalid"):
+            store.record_dispatch(
+                "t1",
+                "frontend-developer",
+                "agent-session-revoked-memory",
+                store._git_snapshot(),
+                revoked_capability,
+            )
+        live_capability = self.memory_capability(store)
+        dispatch = store.record_dispatch(
+            "t1",
+            "frontend-developer",
+            "agent-session-live-memory",
+            store._git_snapshot(),
+            live_capability,
+        )
+        self.assertNotIn(live_capability, dispatch.values())
+        self.assertRegex(dispatch["memory_capability_digest"], r"^[a-f0-9]{64}$")
 
     def test_orphan_attempt_file_cannot_complete_a_task(self) -> None:
         store = workflow_state.WorkflowState.create(

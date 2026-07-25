@@ -75,7 +75,10 @@ class PolicyCheckTests(unittest.TestCase):
     def test_result_must_match_recorded_dispatch(self) -> None:
         dispatch_id = "1" * 16
         checked = self.check(
-            base_result(dispatchId=dispatch_id),
+            base_result(
+                dispatchId=dispatch_id,
+                memoryRecall={"status": "success", "available": 0, "selected": 0},
+            ),
             expected_role="frontend-developer",
             expected_task="task-1",
             expected_dispatch=dispatch_id,
@@ -84,10 +87,22 @@ class PolicyCheckTests(unittest.TestCase):
         self.assertTrue(checked["ok"], checked["violations"])
 
         mismatched = self.check(
-            base_result(dispatchId="2" * 16),
+            base_result(
+                dispatchId="2" * 16,
+                memoryRecall={"status": "success", "available": 0, "selected": 0},
+            ),
             expected_dispatch=dispatch_id,
         )
         self.assertIn("identity", {item["code"] for item in mismatched["violations"]})
+
+        missing_recall = self.check(
+            base_result(dispatchId=dispatch_id),
+            expected_dispatch=dispatch_id,
+        )
+        self.assertIn(
+            "memory_recall",
+            {item["code"] for item in missing_recall["violations"]},
+        )
 
     def test_legacy_result_without_memory_requests_remains_valid(self) -> None:
         result = base_result()

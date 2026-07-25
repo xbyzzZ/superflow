@@ -147,6 +147,8 @@ class BuiltinGuidesTests(unittest.TestCase):
             with self.subTest(template=path.name):
                 content = path.read_text(encoding="utf-8")
                 self.assertIn("roleMemoryCapability", content)
+                self.assertIn("stop before professional work and return `blocked`", content)
+                self.assertIn("Return `memoryRecall`", content)
                 self.assertIn("never request, infer, or access another role's memory", content)
                 self.assertIn("memoryWriteRequests", content)
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")

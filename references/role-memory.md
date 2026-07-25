@@ -18,6 +18,10 @@ Resolve storage through `git rev-parse --git-common-dir`, then use `superflow/me
 
 Each dispatched task receives a temporary capability bound to one role, run ID, task ID, and expiry. A role calls `recall` with that capability and cannot select a role in the recall command. Revoke the capability after processing the result. Never include a capability in Agent results, logs, evidence, or memory.
 
+The main agent places the absolute `role_memory.py` path in the immutable task brief. Before every initial, retry, or repair dispatch, it issues a fresh capability and supplies it only through the task dispatch wrapper. Brief recording validates the script path; dispatch validates the exact capability scope and stores only its SHA-256 digest. Revoke the capability after processing that attempt, then issue a different one for any retry. A role with no stored entries receives an empty `memories` array and continues normally. A task without valid memory access must not be dispatched.
+
+Each specialist result reports only `memoryRecall.status`, `available`, and `selected`. It never returns the capability, query, or recalled records. Accepted attempts require `status: success` and consistent nonnegative counts; a missing or failed recall result is rejected.
+
 Roles do not read each other's memory. Cross-role requirements, architecture, interface definitions, design rules, and findings travel through briefs, formal artifacts, or project documentation.
 
 ## Recall

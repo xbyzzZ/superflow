@@ -26,6 +26,8 @@ Key properties:
 - Repair attempts are bound to an immutable task lineage and stop after three rounds.
 - Run state is recoverable from a project-local snapshot and hash-chained event log.
 - Every role can recall its own project history through a temporary role-bound capability and can propose durable memory without accessing another role.
+- Brief recording validates the installed role-memory script, and every initial, retry, or repair dispatch requires a fresh role-bound capability. Missing, reused, expired, revoked, fabricated, or cross-role capabilities fail closed, while an empty role history remains valid.
+- Accepted specialist results must report successful memory recall counts without exposing the capability, query, or recalled content.
 - Remote Git operations, destructive cleanup, and final integration require explicit user authorization.
 
 ## Roles

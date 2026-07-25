@@ -89,6 +89,9 @@
         "$ref": "#/$defs/memoryWriteRequest"
       }
     },
+    "memoryRecall": {
+      "$ref": "#/$defs/memoryRecall"
+    },
     "workflowUpdateRequest": {
       "$ref": "#/$defs/workflowUpdateRequest"
     },
@@ -157,6 +160,29 @@
         "partial",
         "not-run"
       ]
+    },
+    "memoryRecall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "available",
+        "selected"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["success", "failure"]
+        },
+        "available": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "selected": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     },
     "verdict": {
       "type": "string",

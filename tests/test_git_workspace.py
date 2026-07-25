@@ -15,6 +15,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import git_workspace  # noqa: E402
 import project_config  # noqa: E402
+import role_memory  # noqa: E402
 import workflow_state  # noqa: E402
 
 
@@ -173,6 +174,14 @@ class GitWorkspaceTests(unittest.TestCase):
                 "uiPrototypeProvider": "penpot-mcp",
                 "beforeSnapshot": snapshot,
                 "resultSchema": "assets/schemas/agent-result.schema.json",
+                "roleMemoryScript": str((SCRIPTS / "role_memory.py").resolve()),
+                "builtinGuide": str(
+                    (
+                        SCRIPTS.parent
+                        / "references"
+                        / "frontend-engineering-rules.md"
+                    ).resolve()
+                ),
             },
         )
         store.record_dispatch(
@@ -180,6 +189,12 @@ class GitWorkspaceTests(unittest.TestCase):
             "frontend-developer",
             "agent-session-commit-block",
             snapshot,
+            role_memory.issue_capability(
+                self.root,
+                "frontend-developer",
+                run_id,
+                "t1",
+            )["capability"],
         )
         (self.root / "feature.txt").write_text("feature\n", encoding="utf-8")
 

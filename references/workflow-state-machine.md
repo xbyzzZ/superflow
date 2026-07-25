@@ -72,7 +72,8 @@ python3 scripts/workflow_state.py --project <repo> record-brief \
   <run-id> T1 --brief brief.json
 python3 scripts/workflow_state.py --project <repo> record-dispatch \
   <run-id> T1 backend-developer \
-  --session-id <reserved-session-id> --before before.json
+  --session-id <reserved-session-id> --before before.json \
+  --memory-capability <fresh-role-memory-capability>
 python3 scripts/workflow_state.py --project <repo> record-attempt \
   <run-id> T1 backend-developer initial accepted \
   --dispatch-id <dispatch-id> \
