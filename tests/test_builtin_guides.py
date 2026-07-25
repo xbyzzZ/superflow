@@ -103,6 +103,27 @@ class BuiltinGuidesTests(unittest.TestCase):
             self.assertIn("retries", content)
             self.assertIn("mask", content)
 
+    def test_execution_profiles_bound_context_and_quality_cost(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        profile_script = (
+            ROOT / "scripts" / "workflow_profile.py"
+        ).read_text(encoding="utf-8")
+        reviewer = (
+            ROOT / "assets" / "agent-templates" / "code-reviewer.toml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("fork_turns=none", skill)
+        for profile in ("lite", "standard", "strict"):
+            self.assertIn(profile, profile_script)
+            self.assertIn(profile, skill)
+        self.assertIn("single quality Agent", reviewer)
+        for path in sorted((ROOT / "assets" / "agent-templates").glob("*.toml")):
+            with self.subTest(template=path.name):
+                content = path.read_text(encoding="utf-8")
+                self.assertIn("minimal task brief", content)
+                self.assertIn("memoryLimit", content)
+                self.assertIn("resultDetail", content)
+                self.assertIn("do not emit progress narration", content)
+
     def test_reviewer_contract_is_candidate_bound_and_defect_first(self) -> None:
         criteria = (ROOT / "references" / "code-review-criteria.md").read_text(
             encoding="utf-8"

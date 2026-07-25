@@ -35,7 +35,7 @@ If a selected provider is unavailable:
 
 ## CodeGraph
 
-For code structure, symbols, calls, data flow, or blast radius:
+Set `codeGraphRequired=true` only for code structure, cross-module symbols, calls, data flow, or blast radius. A localized `lite` task uses precise repository search without probing CodeGraph. When required:
 
 1. discover CodeGraph and perform its read-only connection or status call;
 2. set `available=true` only after a successful MCP call;

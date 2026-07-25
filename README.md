@@ -20,6 +20,8 @@ Key properties:
 - One main agent owns user communication, workflow state, approvals, and Git writes.
 - A recorded specialist dispatch puts the main agent into coordination-only waiting, preventing duplicate implementation, testing, review, browser work, and Git progression.
 - Six project-level agents are routed only when their expertise is required.
+- Three execution profiles control cost: `lite` uses one combined quality Agent, `standard` uses independent parallel gates, and `strict` retains the full high-risk workflow.
+- New subagents receive a minimal brief without the parent conversation. Memory and CodeGraph usage are bounded by the frozen profile.
 - Every agent returns a strict JSON result validated against a bundled Schema.
 - Test and review gates must approve the same real Git commit.
 - Any candidate change invalidates previous approvals.
@@ -42,7 +44,19 @@ Key properties:
 | Tester | gpt-5.6-terra, medium | Automated tests, regression coverage, real browser verification |
 | Code reviewer | gpt-5.6-sol, high | Spec compliance, correctness, consistency, security, maintainability |
 
-The six specialist agents do not form a mandatory linear pipeline. Superflow routes them according to the task. A backend-only defect does not require a UI designer, while a cross-module feature may require architecture, UI, frontend, backend, testing, and review.
+The six specialist agents do not form a mandatory linear pipeline. A localized low-risk task normally uses its developer plus one combined quality reviewer. A backend-only defect does not require UI, while a cross-module feature may require architecture, UI, frontend, backend, testing, and review.
+
+## Execution Profiles
+
+| Profile | Minimum use | Quality gates | Context budget |
+|---|---|---|---|
+| `lite` | Localized low-risk code, tests, or documentation | One code reviewer runs tests and review; one accepted result supports both gates | 3 memories, 2 KiB, compact output, CodeGraph only when material |
+| `standard` | User-visible, browser, prototype, cross-module, or public-interface work | Independent tester and reviewer dispatched in parallel | 5 memories, 4 KiB, standard output |
+| `strict` | Authorization, security, migration, production, release, or destructive work | Independent gates and all risk-triggered specialists | 10 memories, 8 KiB, full output |
+
+The deterministic selector chooses the smallest safe profile. A user may request a higher profile, but neither the user request nor the main agent may lower it below detected risk. Legacy runs without a stored profile remain strict.
+
+`workflow_state.py init` accepts `--profile auto` plus a JSON `--risk-signals` object and reruns the selector before freezing the run. With no risk signals, a new CLI run resolves to `lite`.
 
 ## Requirements
 
@@ -53,7 +67,7 @@ The six specialist agents do not form a mandatory linear pipeline. Superflow rou
 
 Conditional tools:
 
-- CodeGraph is preferred for code discovery when its MCP is available.
+- CodeGraph is used for material code discovery when the frozen brief sets `codeGraphRequired`; localized `lite` work may use precise local inspection instead.
 - First initialization asks the user to select Penpot MCP, the Codex Figma plugin, or a custom UI prototype provider.
 - First initialization asks the user to select the Codex Browser plugin, Chrome MCP, or a custom browser provider.
 - Git shared metadata preserves both selections for every worktree and subsequent run in the repository.
@@ -118,14 +132,14 @@ The main agent performs these core steps:
 1. Initialize or upgrade the six managed agent templates.
 2. Verify that the project is a clean Git worktree.
 3. Clarify requirements and define observable acceptance criteria.
-4. Route only the required specialist roles.
+4. Select and freeze the smallest safe execution profile, then route only its required specialist roles.
 5. Create an integration worktree and optional independent task worktrees.
 6. Route browser access explicitly: Codex Browser facts are collected by the main agent before dispatch and independently adjudicated by the tester; direct providers stay with the specialist.
 7. Record each dispatch, pass its immutable ID and any SHA-256-bound browser artifact to the specialist, and wait without overlapping the assigned work.
 8. Bind each returned result to its dispatch, then validate the result, actual diff, tool evidence, and Git snapshot.
 9. Commit only explicitly authorized paths.
 10. Freeze the integration worktree’s real HEAD as the candidate.
-11. Record tester and reviewer results against the same candidate SHA.
+11. Record same-SHA gates: one combined quality result for `lite`, or independent parallel tester and reviewer results for `standard` and `strict`.
 12. Finish only after every planned task is done and both gates pass, or after the user explicitly accepts each current failed gate.
 
 ## Candidate and Dual-Gate Approval
@@ -193,7 +207,7 @@ All seven roles have separate project memory under the Git common directory at `
 
 At dispatch, the main agent issues a temporary capability bound to one role, run, and task. The role uses that capability to query its own memory directly; `recall` does not accept a role selector and performs no filesystem write or lock creation. After the complete Agent result passes Schema and policy checks, the main agent ingests up to three structured `memoryWriteRequests` and revokes the capability.
 
-Recall selects high-importance, query-relevant, and recent entries, limited to 10 records and 8 KiB. Each role keeps at most 500 active records. New records may supersede old records, while superseded and overflow records move to a role-local archive.
+Recall selects high-importance, query-relevant, and recent entries. Dispatch limits are profile-bound: 3 records/2 KiB for `lite`, 5/4 KiB for `standard`, and 10/8 KiB for `strict`. Each role keeps at most 500 active records. New records may supersede old records, while superseded and overflow records move to a role-local archive.
 
 Memory never crosses roles. Shared contracts and project facts must travel through briefs, formal artifacts, or project documentation. Explicit user authorization is required to list, view, delete, clear, export, or import memory. See [role-isolated memory](references/role-memory.md).
 

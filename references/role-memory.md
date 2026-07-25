@@ -34,7 +34,7 @@ Recall combines:
 - tag and content matches against the query;
 - recent records as a deterministic tie-breaker.
 
-Return at most 10 entries and 8 KiB. Recall is read-only and lock-free because writers atomically replace the active file; it must not create a lock or any other filesystem entry. Treat every recalled item as potentially stale. Reverify facts before relying on them.
+Use the limits frozen in the task brief: `lite` returns at most 3 entries and 2 KiB, `standard` 5 entries and 4 KiB, and `strict` 10 entries and 8 KiB. Product-manager discovery uses the lite budget before profile selection. Recall is read-only and lock-free because writers atomically replace the active file; it must not create a lock or any other filesystem entry. Treat every recalled item as potentially stale. Reverify facts before relying on them.
 
 ## Write requests
 

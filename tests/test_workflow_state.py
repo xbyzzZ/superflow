@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import sys
 import subprocess
 import tempfile
@@ -14,6 +16,7 @@ sys.path.insert(0, str(SCRIPTS))
 import workflow_state  # noqa: E402
 import project_config  # noqa: E402
 import role_memory  # noqa: E402
+import workflow_profile  # noqa: E402
 
 
 RUN_ID = "sf-20260724T010203Z-1234abcd"
@@ -203,6 +206,8 @@ class WorkflowStateTests(unittest.TestCase):
         state = store.load()
         task = next(item for item in state["plan"] if item["id"] == task_id)
         browser_provider = state["tool_config"]["browser"]["provider"]
+        profile = state.get("profile", "strict")
+        context = workflow_state.PROFILE_CONTEXT[profile]
         brief = {
             "runId": store.run_id,
             "taskId": task_id,
@@ -222,6 +227,12 @@ class WorkflowStateTests(unittest.TestCase):
                 if browser_provider == "codex-browser"
                 else "specialist-direct"
             ),
+            "executionProfile": profile,
+            "contextMode": "minimal",
+            "memoryLimit": context["memory_limit"],
+            "memoryMaxBytes": context["memory_max_bytes"],
+            "resultDetail": context["result_detail"],
+            "codeGraphRequired": profile != "lite",
             "uiPrototypeProvider": "penpot-mcp",
             "beforeSnapshot": store._git_snapshot(),
             "resultSchema": "assets/schemas/agent-result.schema.json",
@@ -305,6 +316,72 @@ class WorkflowStateTests(unittest.TestCase):
         self.assertEqual(self.store.transition("ready")["status"], "ready")
         gate_id = self.store.load()["gates"]["review"]["id"]
         self.assertTrue((self.store.directory / "gates" / f"{gate_id}.json").is_file())
+
+    def test_lite_profile_reuses_one_quality_result_for_both_gates(self) -> None:
+        task = {
+            **contracted_task(),
+            "role": "code-reviewer",
+            "authorizedPaths": [],
+        }
+        store = workflow_state.WorkflowState.create(
+            self.project,
+            [task],
+            "sf-20260724T010221Z-1234abdf",
+            require_contract=True,
+            profile="lite",
+        )
+        store.register_worktree(self.project, "main", "HEAD")
+        for status in ("preflight", "discovery", "requirements_ready", "planned"):
+            store.transition(status)
+        store.transition("implementing")
+        store.transition("verifying", "t1")
+        store.set_candidate(self.sha_one)
+        brief = self.valid_brief(store, role="code-reviewer")
+        store.record_brief("t1", brief)
+        snapshot = store._git_snapshot()
+        dispatch = store.record_dispatch(
+            "t1",
+            "code-reviewer",
+            "lite-quality-session",
+            snapshot,
+            self.memory_capability(store, role="code-reviewer"),
+        )
+        result = self.gate_result("code-reviewer", "PASS", self.sha_one)
+        result["dispatchId"] = dispatch["dispatch_id"]
+        result["commandsRun"] = [
+            {
+                "command": "python3 -m unittest",
+                "status": "passed",
+                "exitCode": 0,
+                "summary": "The focused and regression tests passed",
+            }
+        ]
+        result["evidence"] = [
+            item for item in result["evidence"] if item["type"] != "codegraph"
+        ]
+        store.record_attempt(
+            "t1",
+            "code-reviewer",
+            "initial",
+            "accepted",
+            result,
+            snapshot,
+            snapshot,
+            "The combined lite quality result passed policy validation",
+            dispatch["dispatch_id"],
+        )
+        for gate in ("test", "review"):
+            state = store.record_gate(
+                gate,
+                self.sha_one,
+                "t1",
+                result,
+                snapshot,
+                snapshot,
+                [],
+            )
+            self.assertEqual(state["gates"][gate]["result"], "PASS")
+        self.assertTrue(store._both_gates_pass(store.load()))
 
     def test_browser_gate_uses_shared_project_provider(self) -> None:
         self.advance_to_verifying()
@@ -612,6 +689,16 @@ class WorkflowStateTests(unittest.TestCase):
             self.git("worktree", "remove", "--force", str(linked))
 
     def test_new_cli_plan_requires_a_complete_acyclic_contract(self) -> None:
+        parsed = workflow_state._build_parser().parse_args(
+            ["init", "--plan", "[]"]
+        )
+        self.assertEqual(parsed.profile, "auto")
+        self.assertEqual(
+            workflow_profile.select_profile(parsed.risk_signals, parsed.profile)[
+                "profile"
+            ],
+            "lite",
+        )
         with self.assertRaisesRegex(workflow_state.StateError, "complete task contract"):
             workflow_state.WorkflowState.create(
                 self.project,
@@ -619,6 +706,35 @@ class WorkflowStateTests(unittest.TestCase):
                 "sf-20260724T010207Z-1234abd1",
                 require_contract=True,
             )
+
+    def test_cli_cannot_downgrade_strict_risk_to_lite(self) -> None:
+        run_id = "sf-20260724T010216Z-1234abda"
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            exit_code = workflow_state.main(
+                [
+                    "--project",
+                    str(self.project),
+                    "init",
+                    "--run-id",
+                    run_id,
+                    "--profile",
+                    "lite",
+                    "--risk-signals",
+                    '{"production":true}',
+                    "--plan",
+                    __import__("json").dumps([contracted_task()]),
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        state = workflow_state.WorkflowState(self.project, run_id).load()
+        self.assertEqual(state["profile"], "strict")
+        self.assertTrue(state["profile_selection"]["upgraded"])
+        self.assertEqual(
+            state["profile_selection"]["reasons"],
+            ["production"],
+        )
 
     def test_task_ids_and_authorized_paths_cannot_escape_audit_storage(self) -> None:
         for task_id in ("../escape", "nested/task"):
@@ -944,6 +1060,11 @@ class WorkflowStateTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(workflow_state.StateError, "built-in guide"):
             store.record_brief("t1", wrong_guide)
+
+        wrong_context = dict(valid)
+        wrong_context["memoryLimit"] = 3
+        with self.assertRaisesRegex(workflow_state.StateError, "run profile"):
+            store.record_brief("t1", wrong_context)
 
         recorded = store.record_brief("t1", valid)
         self.assertEqual(recorded["digest"], store._digest(valid))

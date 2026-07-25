@@ -27,13 +27,21 @@ Browser evidence relay is a separate dispatch phase, never an exception to the w
 
 ## Routing
 
+The frozen execution profile controls the minimum role set:
+
+- `lite`: localized low-risk implementation plus one `code-reviewer` quality task; that Agent runs the frozen verification commands and performs review, and one accepted result may support both gates;
+- `standard`: independent tester and reviewer, normally dispatched in parallel after candidate freeze; add architecture or UI only when triggered;
+- `strict`: independent gates plus every risk-triggered specialist and full evidence detail.
+
+Production, release, security, authorization, data migration, or destructive work is always `strict`. User-visible, browser, UI-prototype, cross-module, or public-interface work is at least `standard`.
+
 | Role | Trigger | Write authority | Required output |
 |---|---|---|---|
 | architect | Cross-module, public interface, data, authorization, migration, infrastructure, or high-risk refactor | Local read-only | Boundaries, contracts, data flow, risks, and task constraints |
 | ui-designer | User-visible page, flow, state, or visual change | Local read-only; selected prototype provider may write | Prototype location, state coverage, components, and interaction rules |
 | frontend-developer | Frontend component, state, interaction, style, or test | Authorized paths | Implementation, tests, commands, and evidence |
 | backend-developer | API, domain logic, data, jobs, or service integration | Authorized paths | Implementation, tests, contracts, and migration evidence |
-| tester | Every code candidate | Authorized test paths only | Test results, page evidence, defects, or PASS |
+| tester | Every `standard` or `strict` code candidate | Authorized test paths only | Test results, page evidence, defects, or PASS |
 | code-reviewer | Every code candidate | Read-only | `spec`, `correctness`, and `consistency` verdicts plus findings |
 
 ## Prohibited for every subagent
@@ -59,12 +67,14 @@ Every brief must include:
 - absolute `builtinGuide` path for architect, UI designer, frontend developer, or backend developer;
 - `browserProvider`, `uiPrototypeProvider`, and custom details from project configuration;
 - `browserRequired` and the derived `browserAccessMode`: `main-relay` for `codex-browser`, otherwise `specialist-direct`;
+- frozen `executionProfile`, `contextMode=minimal`, profile-bound `memoryLimit`, `memoryMaxBytes`, and `resultDetail`;
+- `codeGraphRequired`, enabled only when graph evidence is material to the assigned task;
 - verification commands and evidence requirements;
 - pre-execution HEAD and refs snapshot;
 - path to `agent-result.schema.json`;
 - candidate SHA for reviewer and tester.
 
-Do not send the full conversation. Put each exact value in the brief once.
+Do not send or fork the parent conversation. Put each exact value in the brief once and dispatch with only the minimal brief, execution wrapper, and required artifacts.
 
 The dispatch wrapper additionally supplies the immutable `dispatchId`, stable subagent session or task handle, a fresh `roleMemoryCapability` bound to this role, run, task, and attempt, and any immutable `browserEvidence` recorded for that dispatch. These execution values are created after the brief is frozen and must not be invented by the specialist.
 

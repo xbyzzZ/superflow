@@ -25,6 +25,7 @@ from role_memory import (
     MemoryError as RoleMemoryError,
     resolve_capability,
 )
+from workflow_profile import PROFILE_POLICIES, ProfileError, select_profile
 
 
 GATES = {"test", "review"}
@@ -159,6 +160,15 @@ DISPATCH_PHASES = {
     "code-reviewer": {"verifying", "reviewing"},
 }
 TERMINAL_STATES = {"blocked", "cancelled", "finished"}
+PROFILES = {"lite", "standard", "strict"}
+PROFILE_CONTEXT = {
+    profile: {
+        "memory_limit": policy["memoryLimit"],
+        "memory_max_bytes": policy["memoryMaxBytes"],
+        "result_detail": policy["resultDetail"],
+    }
+    for profile, policy in PROFILE_POLICIES.items()
+}
 BUILTIN_GUIDES = {
     "architect": "architecture-design-rules.md",
     "ui-designer": "ui-ux-design-rules.md",
@@ -349,7 +359,11 @@ class WorkflowState:
         plan: Any,
         run_id: str | None = None,
         require_contract: bool = False,
+        profile: str = "strict",
+        profile_selection: dict[str, Any] | None = None,
     ) -> "WorkflowState":
+        if profile not in PROFILES:
+            raise StateError("Invalid execution profile")
         store = cls(project, run_id or new_run_id())
         store._assert_safe_storage()
         if store.directory.exists():
@@ -369,6 +383,12 @@ class WorkflowState:
             "run_id": store.run_id,
             "status": "initialized",
             "tool_config": tool_config,
+            "profile": profile,
+            **(
+                {"profile_selection": profile_selection}
+                if profile_selection is not None
+                else {}
+            ),
             "active_task_id": None,
             "pending_repair": None,
             "plan": normalized_plan,
@@ -410,6 +430,13 @@ class WorkflowState:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def _validate_invariants(self, state: dict[str, Any]) -> None:
+        profile = state.get("profile", "strict")
+        selection = state.get("profile_selection")
+        if selection is not None and (
+            selection.get("profile") != profile
+            or selection.get("policy") != PROFILE_POLICIES[profile]
+        ):
+            raise StateError("The frozen profile selection does not match its policy")
         task_ids = {item["id"] for item in state["plan"]}
         if len(task_ids) != len(state["plan"]):
             raise StateError("state.json contains duplicate task IDs")
@@ -717,6 +744,12 @@ class WorkflowState:
             "browserProvider",
             "browserRequired",
             "browserAccessMode",
+            "executionProfile",
+            "contextMode",
+            "memoryLimit",
+            "memoryMaxBytes",
+            "resultDetail",
+            "codeGraphRequired",
             "uiPrototypeProvider",
             "beforeSnapshot",
             "resultSchema",
@@ -738,6 +771,8 @@ class WorkflowState:
         ):
             raise StateError("The task brief does not match the frozen task contract")
         expected_browser = state["tool_config"]["browser"]["provider"]
+        profile = state.get("profile", "strict")
+        context = PROFILE_CONTEXT[profile]
         expected_access_mode = (
             "main-relay"
             if expected_browser == "codex-browser"
@@ -747,9 +782,15 @@ class WorkflowState:
             brief["browserProvider"] != expected_browser
             or not isinstance(brief["browserRequired"], bool)
             or brief["browserAccessMode"] != expected_access_mode
+            or brief["executionProfile"] != profile
+            or brief["contextMode"] != "minimal"
+            or brief["memoryLimit"] != context["memory_limit"]
+            or brief["memoryMaxBytes"] != context["memory_max_bytes"]
+            or brief["resultDetail"] != context["result_detail"]
+            or not isinstance(brief["codeGraphRequired"], bool)
         ):
             raise StateError(
-                "The task brief browser routing does not match the frozen project provider"
+                "The task brief execution routing does not match the frozen run profile"
             )
         self._validate_brief_static_context(task["role"], brief)
         path = self.directory / "briefs" / f"{task_id}.json"
@@ -887,6 +928,8 @@ class WorkflowState:
             "before_digest": self._digest(before),
             "brief_digest": self._digest(brief),
             "memory_capability_digest": memory_capability_digest,
+            "execution_profile": brief["executionProfile"],
+            "context_mode": brief["contextMode"],
             **(
                 {"browser_evidence": recorded_browser_evidence}
                 if recorded_browser_evidence is not None
@@ -1199,8 +1242,7 @@ class WorkflowState:
                 ),
                 ui=ui,
                 browser=browser,
-                code=role
-                in {"frontend-developer", "backend-developer", "tester"},
+                code=brief.get("codeGraphRequired") is True,
                 expected_ui_provider=(
                     state["tool_config"]["ui_prototype"]["provider"] if ui else None
                 ),
@@ -1521,8 +1563,14 @@ class WorkflowState:
         fresh = self._git_snapshot()
         if after != fresh:
             raise StateError("The after Git snapshot does not match the current repository state")
-        expected_role = "tester" if gate == "test" else "code-reviewer"
+        profile = state.get("profile", "strict")
+        expected_role = (
+            "code-reviewer"
+            if profile == "lite"
+            else "tester" if gate == "test" else "code-reviewer"
+        )
         task = next(item for item in state["plan"] if item["id"] == task_id)
+        brief: dict[str, Any] | None = None
         if "role" in task:
             dispatch_id = agent_result.get("dispatchId")
             dispatch = state.get("dispatches", {}).get(dispatch_id)
@@ -1549,6 +1597,12 @@ class WorkflowState:
                 raise StateError(
                     "The gate result differs from the accepted dispatch attempt"
                 )
+            brief_path = self.directory / "briefs" / f"{task_id}.json"
+            try:
+                brief = json.loads(brief_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise StateError("The gate task brief is unavailable") from exc
+            code = code and brief.get("codeGraphRequired") is True
         checked = check_policy(
             agent_result,
             allowed_paths,
@@ -1569,7 +1623,10 @@ class WorkflowState:
                 "The gate agent result failed the policy check: "
                 + json.dumps(checked["violations"], ensure_ascii=False, sort_keys=True)
             )
-        result = self._derive_gate_result(agent_result)
+        result = self._derive_gate_result(
+            agent_result,
+            require_test_commands=gate == "test",
+        )
         pending = state.get("pending_repair")
         if result == "FAIL" and pending is not None and pending.get("task_id") != task_id:
             raise StateError("A new failed gate cannot switch away from an unfinished repair lineage")
@@ -1622,7 +1679,10 @@ class WorkflowState:
         return state
 
     @staticmethod
-    def _derive_gate_result(agent_result: dict[str, Any]) -> str:
+    def _derive_gate_result(
+        agent_result: dict[str, Any],
+        require_test_commands: bool = False,
+    ) -> str:
         verification = agent_result.get("verification", {})
         checks = verification.get("checks", [])
         verdicts = verification.get("verdicts", {})
@@ -1636,7 +1696,7 @@ class WorkflowState:
             and not any(item.get("severity") != "info" for item in findings)
             and any(item.get("status") == "success" for item in agent_result.get("evidence", []))
         )
-        if agent_result.get("role") == "tester":
+        if agent_result.get("role") == "tester" or require_test_commands:
             commands = agent_result.get("commandsRun", [])
             passed = (
                 passed
@@ -1738,6 +1798,12 @@ def _build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init")
     init.add_argument("--plan", required=True, type=_json_argument)
     init.add_argument("--run-id")
+    init.add_argument(
+        "--profile",
+        choices=("auto", *sorted(PROFILES)),
+        default="auto",
+    )
+    init.add_argument("--risk-signals", type=_json_argument, default={})
     for name in ("show", "finish"):
         command = sub.add_parser(name)
         command.add_argument("run_id")
@@ -1798,11 +1864,14 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
         if args.command == "init":
+            selection = select_profile(args.risk_signals, args.profile)
             store = WorkflowState.create(
                 args.project,
                 args.plan,
                 args.run_id,
                 require_contract=True,
+                profile=selection["profile"],
+                profile_selection=selection,
             )
             result = store.load()
         else:
@@ -1856,7 +1925,7 @@ def main(argv: list[str] | None = None) -> int:
                 result = store.finish()
         print(json.dumps({"ok": True, "state": result}, ensure_ascii=False, sort_keys=True))
         return 0
-    except (StateError, json.JSONDecodeError, OSError) as exc:
+    except (StateError, ProfileError, json.JSONDecodeError, OSError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, sort_keys=True))
         return 2
 

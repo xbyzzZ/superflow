@@ -15,7 +15,7 @@ Act as the product manager and sole orchestrator. Own user communication, scope,
 
 1. Only the main agent contacts the user, updates the shared workflow ledger, creates branches or worktrees, stages, commits, and integrates code.
 2. Subagents never modify `.codex/agents/`, the shared workflow ledger, or Git state, and never spawn agents.
-3. Every code candidate requires `code-reviewer` and `tester` gates against the same candidate SHA.
+3. Every code candidate requires review and test gates against the same candidate SHA. `lite` may use one `code-reviewer` result for both; `standard` and `strict` require separate reviewer and tester results.
 4. The product manager cannot override a failed gate. Only the user may accept risk; retain FAIL.
 5. Allow at most three automatic repair rounds per task. Resume the original developer for rounds one and two; use a fresh developer for round three. Block after another failure.
 6. Do not use Backlog MCP. The local workflow ledger is authoritative.
@@ -86,15 +86,27 @@ python3 <superflow>/scripts/git_workspace.py preflight --project "$PWD"
 If the base worktree is dirty, do not stash, commit, or discard changes. Ask the user. After preflight:
 
 1. inspect project instructions, requirements, tests, recent commits, and implementation;
-2. detect CodeGraph, selected browser, selected prototype provider, and relevant optional Skills;
-3. create a complete task DAG. Every task has a stable ID, role, dependencies, authorized paths, acceptance criteria, exact verification commands, observable results, and an initial status;
-4. initialize the run:
+2. identify only tools required by the actual task; do not probe CodeGraph, browser, prototype, or optional Skills that will not be routed;
+3. select the smallest safe execution profile:
 
 ```bash
-python3 <superflow>/scripts/workflow_state.py --project "$PWD" init --plan plan.json
+python3 <superflow>/scripts/workflow_profile.py \
+  --signals '{"userVisible":false,"crossModule":false}'
 ```
 
-`plan.json` must contain the complete task-contract array, not titles or placeholders. Save `run_id`. The script freezes project tools in `state.json.tool_config` and stores the run under the Git common directory at `superflow/workflows/<run-id>/`, so every linked worktree reads the same ledger. Update state only through `workflow_state.py`; never copy, edit, or synthesize ledger files manually.
+Use `lite` for localized low-risk work, `standard` for user-visible, browser, UI-prototype, cross-module, or public-interface work, and `strict` for authorization, security, data migration, production, release, or destructive work. The selector may upgrade an explicit request but never downgrade below detected risk.
+
+4. create a complete task DAG. Every task has a stable ID, role, dependencies, authorized paths, acceptance criteria, exact verification commands, observable results, and an initial status;
+5. initialize the run with the selected profile:
+
+```bash
+python3 <superflow>/scripts/workflow_state.py --project "$PWD" init \
+  --profile auto \
+  --risk-signals '{"userVisible":false,"crossModule":false}' \
+  --plan plan.json
+```
+
+The CLI defaults to automatic selection, which resolves to `lite` with no risk signals. Pass the same complete signal set used for preview; `workflow_state.py` reruns the selector so a requested profile cannot bypass an upgrade. `plan.json` must contain complete task contracts, not titles or placeholders. Save `run_id`. The script freezes the selection, profile, and project tools in shared state. Existing states without a profile remain `strict`. Update state only through `workflow_state.py`; never copy, edit, or synthesize ledger files manually.
 
 ## 3. Freeze requirements and route conditionally
 
@@ -106,7 +118,8 @@ python3 <superflow>/scripts/role_memory.py --project "$PWD" issue-capability \
   --orchestrator-authorized
 
 python3 <superflow>/scripts/role_memory.py --project "$PWD" recall \
-  --capability <capability> --query '<requirement and project terms>'
+  --capability <capability> --query '<requirement and project terms>' \
+  --limit 3 --max-bytes 2048
 ```
 
 Reverify recalled guidance against current facts. Record only durable, evidenced product knowledge with `record`; never retain transient progress or sensitive content.
@@ -115,15 +128,16 @@ Apply `product-management-rules.md` to freeze user, evidence, scenario, scope, f
 
 Ask the user only for material product ambiguity, scope expansion, destructive or remote action, unresolved third-round failure, or final push, PR, merge, or cleanup.
 
-Route:
+Route by profile:
 
 - cross-module, API, database, authorization, migration, infrastructure, or public contract -> `architect`;
 - unresolved user-visible flow, state, interaction, or visual design decision -> `ui-designer`;
 - frontend implementation -> `frontend-developer`;
 - backend implementation -> `backend-developer`;
-- every code candidate -> `code-reviewer` and `tester`.
+- `lite` candidate -> one `code-reviewer` quality task that runs frozen verification commands and performs review; use its accepted result for both gates;
+- `standard` or `strict` candidate -> independent `code-reviewer` and `tester` tasks, dispatched in parallel after the candidate is frozen.
 
-Do not dispatch roles merely to use them. A mechanical implementation with frozen UI behavior and acceptance does not require `ui-designer`. Architecture and UI may run in parallel only without dependency. Complete required prototype work before corresponding frontend implementation.
+Do not dispatch roles merely to use them. `lite` does not route architect, UI, or tester. Any trigger requiring those roles raises the minimum profile. Architecture and UI may run in parallel only without dependency. Complete required prototype work before corresponding frontend implementation.
 
 ## 4. Plan, isolate, and dispatch
 
@@ -137,10 +151,12 @@ python3 <superflow>/scripts/git_workspace.py create-worktree \
 - Serialize writes by default.
 - Parallel task worktrees require frozen interfaces, no order dependency, no shared state, and disjoint files.
 - Subagents modify only authorized files and never run Git.
-- Every brief is self-contained and includes work directory, paths, acceptance, baseline, result Schema, and the absolute `builtinGuide` for architect, UI, frontend, or backend.
+- Every brief is minimal and self-contained. Include only work directory, frozen task facts, paths, acceptance, baseline, result Schema path, execution profile, context controls, tool routing, and the absolute `builtinGuide` for architect, UI, frontend, or backend. Never include the parent conversation or duplicate shared prose.
 - Record the exact brief before dispatch with `workflow_state.py record-brief`. Record every accepted, rejected, blocked, retry, and repair result with `record-attempt`; never overwrite a previous attempt.
 - Put the absolute `roleMemoryScript` in the immutable task brief. Before every dispatch or retry, issue a fresh capability bound to the exact role, run, and task; pass it to `record-dispatch` and supply it to the subagent as `roleMemoryCapability` in the task dispatch wrapper. `record-brief` validates the script and required role guide; `record-dispatch` validates the capability scope and stores only its digest. Never omit, reuse, persist in the brief, or share a capability between roles, tasks, or attempts.
 - Relevant briefs include `browserProvider`, `browserRequired`, the derived `browserAccessMode`, `uiPrototypeProvider`, and custom details. Use `main-relay` for `codex-browser`; use `specialist-direct` for `chrome-mcp` and custom providers.
+- Set `contextMode=minimal`. Dispatch with no conversation fork. Set `memoryLimit`, `memoryMaxBytes`, and `resultDetail` from the frozen profile: `lite=3/2048/compact`, `standard=5/4096/standard`, `strict=10/8192/full`.
+- Set `codeGraphRequired=true` only for cross-module, call-chain, data-flow, or blast-radius work. A localized `lite` task uses precise search without probing CodeGraph.
 - Snapshot HEAD and refs before and after dispatch. `policy_check.py` may precheck output; gate recording rechecks policy and current repository facts.
 
 Dispatch is a binding protocol, not a notification:
@@ -148,10 +164,11 @@ Dispatch is a binding protocol, not a notification:
 1. prepare the worktree, dependencies, runtime, candidate, brief, and `before` snapshot before dispatch; for a browser-required `codex-browser` task, collect narrowly scoped page facts first and prepare a provenance-complete JSON artifact without adjudicating them;
 2. reserve the stable subagent session or task handle;
 3. record the dispatch and capture its returned `dispatch_id`;
-4. supply that exact ID with the task dispatch and require it as `dispatchId` in the result;
-5. record any other already-planned independent dispatches;
-6. wait for the dispatched agents; while any dispatch is `waiting`, do not edit files, run project commands, inspect the implementation with CodeGraph, operate browser or prototype tools, implement, test, review, commit, cherry-pick, change task status, freeze a candidate, record a gate, or advance the workflow;
-7. after a terminal result, record the attempt against the same dispatch ID before validating, integrating, retrying, or continuing.
+4. dispatch with `fork_turns=none` or the platform's equivalent no-parent-conversation option; supply only the brief, execution wrapper, and required artifact paths;
+5. supply that exact ID with the task dispatch and require it as `dispatchId` in the result;
+6. record any other already-planned independent dispatches;
+7. wait for the dispatched agents; while any dispatch is `waiting`, do not edit files, run project commands, inspect the implementation with CodeGraph, operate browser or prototype tools, implement, test, review, commit, cherry-pick, change task status, freeze a candidate, record a gate, or advance the workflow;
+8. after a terminal result, record the attempt against the same dispatch ID before validating, integrating, retrying, or continuing.
 
 ```bash
 python3 <superflow>/scripts/workflow_state.py --project <task-worktree> \
@@ -221,9 +238,11 @@ python3 <superflow>/scripts/workflow_state.py --project <integration-worktree> \
   set-candidate <run-id> <candidate-sha>
 ```
 
-The SHA must resolve to the integration worktree's current HEAD. Dispatch reviewer and tester against that exact SHA.
+The SHA must resolve to the integration worktree's current HEAD.
 
-Reviewer evaluates specification compliance, correctness and security, then consistency. Tester covers normal, failure, boundary, authorization, data, compatibility, responsive, and regression behavior, including real-page operation when required.
+For `lite`, dispatch one `code-reviewer` against the candidate. It runs every frozen verification command and then reviews specification, correctness, security, and consistency. After its attempt is accepted, record both gates from the same result; the test gate fails unless every command passed.
+
+For `standard` and `strict`, dispatch reviewer and tester in parallel against the exact candidate SHA. Reviewer evaluates specification compliance, correctness and security, then consistency. Tester covers normal, failure, boundary, authorization, data, compatibility, responsive, and regression behavior, including real-page operation when required.
 
 ```bash
 python3 <superflow>/scripts/workflow_state.py --project <integration-worktree> \
@@ -236,7 +255,7 @@ python3 <superflow>/scripts/workflow_state.py --project <integration-worktree> \
   --allowed-path 'tests/**' --browser
 ```
 
-Use `--browser` only for page tests and `--no-code` for non-code gates. Gate recording requires current HEAD, a clean business worktree, and no merge, rebase, or cherry-pick in progress. Any code change requires a new candidate and both gates.
+For `lite`, pass the accepted reviewer result and reviewer task ID to both gate commands. Use `--browser` only for page tests and `--no-code` for non-code gates. Gate recording requires current HEAD, a clean business worktree, and no merge, rebase, or cherry-pick in progress. Any code change requires a new candidate and both gates.
 
 ## 7. Repair and circuit break
 
@@ -256,7 +275,7 @@ Fix only current findings, run relevant tests, and direct re-review. Block after
 
 ## 8. Complete and request user decisions
 
-Only after all tasks are done and same-SHA review and test gates PASS may the run enter ready and finish. Candidate and gate lifecycle restrictions are enforced by the state script.
+Only after all tasks are done may the run finish: normally through same-SHA review and test PASS in `ready`, or through `risk_accepted` after the user explicitly accepts every current failed gate. Candidate and gate lifecycle restrictions are enforced by the state script.
 
 For explicit user risk acceptance:
 
@@ -273,6 +292,8 @@ Keep user-facing progress at meaningful milestones: requirements frozen, a route
 
 ## Block conditions
 
-Stop automatic progression for a non-Git or dirty base worktree, Agent template conflict, undiscoverable required role, unresolved product scope, unavailable selected prototype or browser provider, missing permission, subagent authority violation, third-round failure, or required remote, release, destructive, or production action.
+Pause in the current non-terminal state and request user authority before a remote, release, destructive, or production action that was not explicitly authorized in the current request. Do not transition the run to terminal `blocked` merely while waiting for that answer.
+
+Transition to terminal `blocked` only for a non-Git or dirty base worktree, Agent template conflict, undiscoverable required role, unresolved product scope, unavailable selected prototype or browser provider, an external or system permission that cannot be restored within the current run, subagent authority violation, third-round failure, or another condition that cannot be recovered within the current run.
 
 Preserve the environment and ledger. Report evidence, impact, and recovery without silent degradation or fabricated completion.
