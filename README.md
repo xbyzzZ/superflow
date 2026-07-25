@@ -17,8 +17,8 @@ Multi-agent coding often fails at the boundaries: agents change files outside th
 
 Key properties:
 
-- One main agent owns user communication, workflow state, approvals, and Git writes.
-- A recorded specialist dispatch puts the main agent into coordination-only waiting, preventing duplicate implementation, testing, review, browser work, and Git progression.
+- One main agent writes requirements and owns user communication, workflow state, approvals, and mechanical Git integration.
+- The main agent never performs specialist work, whether or not a dispatch is waiting.
 - Six project-level agents are routed only when their expertise is required.
 - Three execution profiles control cost: `lite` uses one combined quality Agent, `standard` uses independent parallel gates, and `strict` retains the full high-risk workflow.
 - New subagents receive a minimal brief without the parent conversation. Memory and CodeGraph usage are bounded by the frozen profile.
@@ -90,7 +90,7 @@ Restart Codex if the current session does not discover the Skill. You may also i
 GitHub release archives contain an installable top-level `superflow/` directory:
 
 ~~~bash
-unzip superflow-v0.2.1.zip -d ~/.codex/skills
+unzip superflow-v0.2.2.zip -d ~/.codex/skills
 ~~~
 
 ## Quick Start
@@ -136,9 +136,9 @@ The main agent performs these core steps:
 3. Clarify requirements, freeze a user-facing `requirements.md`, and define observable acceptance criteria.
 4. Select and freeze the smallest safe execution profile, then route only its required specialist roles.
 5. Create an integration worktree and optional independent task worktrees.
-6. Route browser access explicitly: Codex Browser facts are collected by the main agent before dispatch and independently adjudicated by the tester; direct providers stay with the specialist.
-7. Record each dispatch, pass its immutable ID and any SHA-256-bound browser artifact to the specialist, and wait without overlapping the assigned work.
-8. Bind each returned result to its dispatch, then validate the result, actual diff, tool evidence, and Git snapshot.
+6. Route every professional task, including browser and prototype work, to a specialist-direct provider.
+7. Record each dispatch, pass its immutable ID to the specialist, and wait without overlapping the assigned work.
+8. Bind each returned result to its dispatch, then validate its Schema, authorized paths, recorded tool evidence, and Git snapshot mechanically.
 9. Commit only explicitly authorized paths.
 10. Freeze the integration worktree’s real HEAD as the candidate.
 11. Record same-SHA gates: one combined quality result for `lite`, or independent parallel tester and reviewer results for `standard` and `strict`.
@@ -209,6 +209,8 @@ Each planned task freezes its role, dependencies, authorized paths, acceptance c
 Browser access is also frozen in the brief. `chrome-mcp` and custom specialist-direct providers can be used by frontend agents for reproduction, debugging, and self-checks, then independently by tester agents for final acceptance. `codex-browser` is main-agent scoped and is not used for delegated browser work; a browser-required task pauses until the user selects a specialist-direct provider for a new run. The main agent never browses on behalf of a specialist.
 
 After implementation is accepted, the main agent validates the result contract, performs only the required Git integration, freezes the candidate SHA, and immediately dispatches the quality gate or parallel review and test gates. It does not rerun tests, start containers, prepare the candidate runtime, or pre-inspect the page. Gate agents own candidate-bound verification.
+
+The main agent writes requirements and controls workflow mechanics only. It does not participate in architecture, UI, implementation, debugging, testing, browser operation, or code review, even when no subagent is currently running. Each professional guide and task is handled only by its assigned specialist.
 
 ## Role-Isolated Memory
 

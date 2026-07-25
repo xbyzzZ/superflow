@@ -14,8 +14,8 @@ Superflow 是一个面向 Codex 的端到端软件交付工作流 Skill，由一
 
 主要能力：
 
-- 主代理独占用户沟通、工作流状态、审批和 Git 写权限。
-- 专业子代理被正式派发后，主代理会进入纯协调等待态，不能重复执行开发、测试、审查、浏览器验收或 Git 推进。
+- 主代理只负责编写需求，并独占用户沟通、工作流状态、审批和机械 Git 集成权限。
+- 无论当前是否有派发等待，主代理都不得执行任何专业角色工作。
 - 六类项目级 Agent 按任务需要路由，不强制走固定流水线。
 - 三档执行模式控制成本：`lite` 使用一个合并质量 Agent，`standard` 使用独立并行门禁，`strict` 保留完整高风险流程。
 - 新子代理只接收最小任务 brief，不继承主对话；记忆召回与 CodeGraph 使用由当前档位限制。
@@ -87,7 +87,7 @@ cp -R ./superflow ~/.codex/skills/superflow
 GitHub Release 发布包包含可直接安装的顶层 `superflow/` 目录：
 
 ~~~bash
-unzip superflow-v0.2.1.zip -d ~/.codex/skills
+unzip superflow-v0.2.2.zip -d ~/.codex/skills
 ~~~
 
 ## 快速开始
@@ -134,7 +134,7 @@ python3 <superflow>/scripts/init_project.py --project "$PWD" \
 4. 选择并冻结最轻安全档位，只调度当前任务需要的专业角色。
 5. 创建 integration worktree，并按需创建互不冲突的任务 worktree。
 6. 记录每次派发，把不可变派发 ID 交给专业子代理，然后等待且不重叠执行已分配工作。
-7. 将返回结果绑定到对应派发后，再校验 Agent 结果、实际 diff、工具证据和 Git snapshot。
+7. 将返回结果绑定到对应派发后，只机械校验 Schema、授权路径、已记录工具证据和 Git snapshot。
 8. 只提交明确授权的路径。
 9. 将 integration worktree 的真实 HEAD 冻结为 candidate。
 10. 记录同一 candidate SHA 的门禁：`lite` 使用一份综合质量结果，`standard` 和 `strict` 使用独立并行的 tester 与 reviewer 结果。
@@ -184,6 +184,8 @@ python3 <superflow>/scripts/workflow_state.py \
 浏览器权限也会被冻结到任务 brief 中。`chrome-mcp` 和可由专业角色直连的自定义浏览器，可由前端角色用于复现、调试和实现自检，再由测试角色独立完成最终验收。`codex-browser` 仅属于主代理，不能用于委派后的浏览器工作；需要真实页面操作时，流程会暂停并要求用户为新运行改选专业角色可直连的 provider。主代理不会代替专业角色操作浏览器。
 
 实现结果被接受后，主代理只校验结果合同、执行必要的 Git 集成、冻结候选 SHA，然后立即派发单质量门禁或并行的审查与测试双门禁。主代理不会复跑测试、启动容器、准备候选运行环境或提前检查页面；所有候选级验证由门禁角色完成。
+
+主代理只负责编写需求和控制流程机械运转。即使当前没有子代理在运行，它也不参与架构、UI、实现、调试、测试、浏览器操作或代码审查。每份专业指南和专业任务只由对应角色处理。
 
 ## 可恢复状态
 

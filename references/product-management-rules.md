@@ -5,9 +5,10 @@ Use these rules to convert user intent into frozen scope, executable tasks, and 
 ## Establish facts
 
 - Separate user statements, repository facts, external evidence, inferences, and open questions.
-- Inspect current product documentation, tasks, implementation, and runtime evidence before proposing a solution.
+- Read user statements and current product documentation. Route implementation and runtime discovery to the appropriate specialist; do not inspect or interpret source, tests, or runtime behavior in the main-agent context.
 - Do not use a framework score when its inputs lack evidence.
 - Ask the user only when product intent has materially different branches, one decision-changing question at a time.
+- Treat specialist technical results as routed evidence. Record their status and traceability without independently diagnosing, reviewing, testing, or resolving technical disagreement.
 
 ## Freeze requirements
 

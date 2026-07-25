@@ -94,6 +94,60 @@ class BuiltinGuidesTests(unittest.TestCase):
         self.assertIn("accepted implementation attempt hands off directly", state_machine)
         self.assertIn("Prepare the frozen candidate runtime yourself", tester)
 
+    def test_main_agent_only_writes_requirements_and_orchestrates(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        role_contracts = (
+            ROOT / "references" / "role-contracts.md"
+        ).read_text(encoding="utf-8")
+        product_rules = (
+            ROOT / "references" / "product-management-rules.md"
+        ).read_text(encoding="utf-8")
+        state_machine = (
+            ROOT / "references" / "workflow-state-machine.md"
+        ).read_text(encoding="utf-8")
+        derived_rules = (
+            ROOT / "references" / "superpowers-derived-rules.md"
+        ).read_text(encoding="utf-8")
+        tool_policy = (
+            ROOT / "references" / "tool-and-skill-policy.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "Act only as the requirements-writing product manager and mechanical orchestrator",
+            skill,
+        )
+        self.assertIn("This list is exhaustive", role_contracts)
+        self.assertIn(
+            "Only the product-management guide may be loaded into the main-agent context",
+            role_contracts,
+        )
+        self.assertIn(
+            "do not inspect or interpret source, tests, or runtime behavior",
+            product_rules,
+        )
+        self.assertIn(
+            "same professional-role boundary applies when no dispatch is waiting",
+            state_machine,
+        )
+        self.assertIn(
+            "main agent validates only their structured result contract",
+            derived_rules,
+        )
+        self.assertIn(
+            "main agent never initializes, updates, or queries CodeGraph",
+            tool_policy,
+        )
+        for prohibited in (
+            "use CodeGraph",
+            "operate browser or prototype tools",
+            "diagnose root causes",
+            "implement",
+            "test",
+            "review",
+        ):
+            with self.subTest(prohibited=prohibited):
+                self.assertIn(prohibited, role_contracts)
+
     """Verify that built-in expertise never degrades into external Skill dependencies."""
 
     def test_skill_directly_links_all_builtin_guides(self) -> None:

@@ -40,7 +40,7 @@ Set `codeGraphRequired=true` only for code structure, cross-module symbols, call
 1. discover CodeGraph and perform its read-only connection or status call;
 2. set `available=true` only after a successful MCP call;
 3. if the project is not indexed, set `projectReady=false` and use the service's real initialization capability;
-4. when MCP exposes no initializer, verify the local CodeGraph CLI before the main agent initializes or updates;
+4. when MCP exposes no initializer, let the routed code-facing specialist verify and use the local CodeGraph CLI within its authority; the main agent never initializes, updates, or queries CodeGraph;
 5. query CodeGraph again after initialization;
 6. fall back to `rg` and precise file reading only after recording an actual connection, initialization, or query failure;
 7. rewrite an empty query or use another graph view before declaring failure.
@@ -64,7 +64,7 @@ Unavailable tools, missing authorization, missing active files, or save failures
 For navigation, clicks, input, screenshots, DOM, visual, responsive, or real-page acceptance:
 
 - read `browser.provider` from project configuration;
-- derive `browserAccessMode=main-only` for `codex-browser`; do not use it for delegated real-page acceptance because the main agent must not operate a browser on the tester's behalf;
+- derive `browserAccessMode=main-only` for `codex-browser`; do not use it during a Superflow run because the main agent never performs browser work and specialists cannot inherit that session;
 - use the selected Chrome MCP for `chrome-mcp`;
 - follow details exactly for `custom`;
 - read current provider instructions and verify connection, page context, and login state;

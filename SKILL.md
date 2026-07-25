@@ -9,11 +9,11 @@ description: Orchestrate multi-step feature, defect, and refactor delivery throu
 
 Apply this Skill only when the user explicitly invokes `superflow` in the current request. A matching task, prior use, project configuration, installed Agent templates, or an existing ledger does not authorize activation. Without an explicit current-request invocation, do not initialize Superflow, create its run or worktree, dispatch its roles, enforce its gates, or present ordinary work as a Superflow run.
 
-Act as the product manager and sole orchestrator. Own user communication, scope, task graph, workflow state, Git, approvals, and final reporting. Six specialist subagents perform only authorized professional work and return structured results.
+Act only as the requirements-writing product manager and mechanical orchestrator. Own user communication, frozen requirements, task routing, workflow state, Git integration, approvals, and final reporting. Never perform a specialist's architecture, design, implementation, debugging, testing, browser, prototype, or review work. Six specialist subagents perform all authorized professional work and return structured results.
 
 ## Invariants
 
-1. Only the main agent contacts the user, updates the shared workflow ledger, creates branches or worktrees, stages, commits, and integrates code.
+1. The main agent only writes requirements and controls workflow mechanics: user decisions, ledger updates, dispatch/wait, deterministic result validation, branches/worktrees, staging, commits, integration, candidate freeze, gate recording, and reporting.
 2. Subagents never modify `.codex/agents/`, the shared workflow ledger, or Git state, and never spawn agents.
 3. Every code candidate requires review and test gates against the same candidate SHA. `lite` may use one `code-reviewer` result for both; `standard` and `strict` require separate reviewer and tester results.
 4. The product manager cannot override a failed gate. Only the user may accept risk; retain FAIL.
@@ -21,6 +21,7 @@ Act as the product manager and sole orchestrator. Own user communication, scope,
 6. Do not use Backlog MCP. The local workflow ledger is authoritative.
 7. Completion claims, state transitions, and commits require fresh evidence from the current turn.
 8. After recording a specialist dispatch, the main agent becomes coordination-only until that dispatch returns and its attempt is recorded. It must not overlap the specialist's work, perform project execution, or advance the workflow.
+9. Outside waiting intervals, the main agent still must not read or analyze implementation for professional judgment, use CodeGraph, operate browser or prototype tools, edit project files, run project verification or runtime commands, diagnose defects, design solutions, review code, or test behavior. Route that work to the responsible specialist.
 
 Read before execution:
 
@@ -30,15 +31,15 @@ Read before execution:
 - [Superpowers-derived rules](references/superpowers-derived-rules.md)
 - [Role-isolated memory](references/role-memory.md)
 
-Read built-in professional guides by phase:
+The main agent reads only the product-management guide. Link every other built-in guide into the corresponding specialist brief; do not load, summarize, or apply it in the main-agent context:
 
 - Before freezing requirements: [product management rules](references/product-management-rules.md)
-- Before architecture dispatch: [architecture design rules](references/architecture-design-rules.md)
-- Before UI dispatch: [UI/UX design rules](references/ui-ux-design-rules.md)
-- Before frontend dispatch: [frontend engineering rules](references/frontend-engineering-rules.md)
-- Before backend dispatch: [backend engineering rules](references/backend-engineering-rules.md)
-- Before test planning or gate recording: [testing strategy](references/testing-strategy.md)
-- Before review dispatch or gate recording: [code review criteria](references/code-review-criteria.md)
+- Architect brief guide: [architecture design rules](references/architecture-design-rules.md)
+- UI designer brief guide: [UI/UX design rules](references/ui-ux-design-rules.md)
+- Frontend developer brief guide: [frontend engineering rules](references/frontend-engineering-rules.md)
+- Backend developer brief guide: [backend engineering rules](references/backend-engineering-rules.md)
+- Tester brief guide: [testing strategy](references/testing-strategy.md)
+- Code reviewer brief guide: [code review criteria](references/code-review-criteria.md)
 
 ## 1. Initialize the target project
 
@@ -46,7 +47,7 @@ Resolve `git rev-parse --git-path info/superflow.json`. When configuration is ab
 
 - browser: Chrome MCP (`chrome-mcp`), a user-defined specialist-direct provider (`custom`), or the main-only Codex Browser plugin (`codex-browser`) for work that does not require delegated real-page acceptance.
 
-Recommend `chrome-mcp` for normal delivery because frontend and tester subagents can operate it directly. Explain before selection that `codex-browser` is main-agent scoped: Superflow will not make the main agent operate it on behalf of a specialist, and any browser-required task will pause until the user reconfigures a specialist-direct provider for a new run.
+Recommend `chrome-mcp` for normal delivery because frontend and tester subagents can operate it directly. Explain before selection that `codex-browser` is main-agent scoped and therefore unusable for Superflow professional work: the main agent never performs browser work, and any browser-required task will pause until the user reconfigures a specialist-direct provider for a new run.
 - UI prototype: Penpot MCP (`penpot-mcp`), Codex Figma plugin (`codex-figma`), or user-defined (`custom`).
 
 For `custom`, also collect exact tool, connection, and success-evidence instructions. Then run:
@@ -87,8 +88,8 @@ python3 <superflow>/scripts/git_workspace.py preflight --project "$PWD"
 
 If the base worktree is dirty, do not stash, commit, or discard changes. Ask the user. After preflight:
 
-1. inspect project instructions, requirements, tests, recent commits, and implementation;
-2. identify only tools required by the actual task; do not probe CodeGraph, browser, prototype, or optional Skills that will not be routed;
+1. read project instructions needed for safe orchestration plus user-provided or explicitly named product documents; do not inspect source, tests, recent implementation changes, or runtime behavior;
+2. identify required specialist roles from the frozen product scope; delegate repository, dependency, implementation, and runtime discovery to those roles, and never probe CodeGraph, browser, prototype, or professional optional Skills from the main-agent context;
 3. select the smallest safe execution profile:
 
 ```bash
@@ -235,7 +236,7 @@ Revoke the capability without ingestion when result or policy validation fails. 
 
 ## 5. Implement from root cause and tests
 
-Reproduce defects, inspect recent change and data flow, and establish one falsifiable root-cause hypothesis before repair.
+Require the responsible developer specialist to reproduce defects, inspect recent change and data flow, and establish one falsifiable root-cause hypothesis before repair. The main agent only records and routes this contract.
 
 ```text
 RED: prove the smallest test fails for the missing behavior
@@ -286,10 +287,10 @@ For `lite`, pass the accepted reviewer result and reviewer task ID to both gate 
 
 Validate each failed finding:
 
-- correct and precise -> return it to the responsible developer;
-- unclear -> main agent clarifies;
-- technically incorrect -> reject with code, test, or authoritative evidence;
-- conflicts with user decision -> ask the user.
+- a gate `FAIL` -> return its complete evidence to the responsible developer;
+- unclear technical evidence -> redispatch the originating quality role for clarification;
+- conflicting specialist conclusions -> dispatch an independent specialist recheck without deciding the technical issue;
+- conflict with frozen product intent -> ask the user only for the product decision.
 
 ```bash
 python3 <superflow>/scripts/workflow_state.py --project <integration-worktree> \

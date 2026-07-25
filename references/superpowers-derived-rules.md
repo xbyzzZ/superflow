@@ -4,7 +4,7 @@ Superflow incorporates proven engineering discipline from Superpowers but reimpl
 
 ## Clarify before design
 
-- Understand the existing project, target user, constraints, and success criteria before code changes.
+- The main agent establishes target user, product constraints, and success criteria; routed specialists establish current technical facts before code changes.
 - Resolve one material ambiguity at a time, preferably with comparable options.
 - Present recommendation, alternatives, and rationale for real tradeoffs.
 - Do not expand product scope without user confirmation.
@@ -45,14 +45,14 @@ Stop stacking patches when attempts add no explanatory power. Revisit the hypoth
 - Verify target directory, branch, and base worktree before creation.
 - Do not auto-stash, overwrite user changes, or run destructive reset.
 - Subagents never operate Git; only the main agent commits or cherry-picks.
-- Reverify integrated results instead of reusing branch-local conclusions.
+- Freeze the integrated candidate and require its quality agents to verify it instead of reusing branch-local conclusions.
 
 ## Dispatch
 
 - Give each subagent one bounded professional task.
 - Parallelize only when interfaces are frozen and write sets do not overlap.
 - Include context, authorized paths, acceptance, and result Schema.
-- Inspect actual diff, commands, and tool evidence.
+- Require the responsible specialist to inspect the actual diff, commands, and tool evidence; the main agent validates only their structured result contract.
 - Use a fresh agent for the third repair round to avoid repeating the same reasoning.
 
 ## Two-stage review
@@ -67,9 +67,9 @@ A specification failure cannot pass because code quality is otherwise good. Find
 
 ## Handle feedback
 
-- Verify a finding against the current code before acting.
-- Clarify interconnected or ambiguous feedback through the main agent.
-- Reject technically incorrect feedback with code, tests, or authoritative documentation.
+- Route a finding to the responsible specialist for verification against the current code.
+- Return interconnected or ambiguous technical feedback to the originating quality role for clarification.
+- Require an independent specialist result before rejecting feedback as technically incorrect.
 - Ask the user when feedback conflicts with confirmed scope.
 
 ## Directed re-review
@@ -81,7 +81,7 @@ A specification failure cannot pass because code quality is otherwise good. Find
 
 ## Verify before completion
 
-Before any completion claim, the main agent must identify the proving command or action, run it on the current candidate, read complete output and exit status, verify it supports the claim, and report evidence and limitations.
+Before any completion claim, the candidate-bound quality roles must run the proving commands or actions, read complete output and exit status, and return structured evidence and limitations. The main agent checks only that accepted same-SHA gate records contain the required evidence and must not rerun or reinterpret it.
 
 Past passes, subagent summaries, static reading, and expected success are not completion evidence.
 

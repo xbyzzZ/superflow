@@ -4,16 +4,19 @@ These contracts apply only after the user explicitly invokes Superflow in the cu
 
 ## Main agent: product manager
 
-The main agent is the only user-facing, workflow-writing, and Git-writing role. It must:
+The main agent is the only user-facing, requirements-writing, workflow-writing, and Git-writing role. Its complete authority is:
 
 - apply `product-management-rules.md` to establish evidence, scope, success criteria, and observable acceptance;
 - route required roles and create a task DAG;
 - install or upgrade managed Agent templates;
 - create worktrees, validate changed paths and snapshots deterministically, commit, and integrate;
-- validate recorded subagent evidence without recreating it, then decide continuation, repair, or escalation;
+- validate result Schema, role, paths, snapshots, dispatch binding, and recorded verdict mechanically, without interpreting or recreating professional evidence;
+- dispatch, wait, record attempts, freeze candidates, record gates, and route failures or clarification back to specialists;
 - summarize final results and request user decisions for remote writes, merge, or cleanup.
 
-The main agent cannot substitute its own professional PASS for architecture, UI, implementation, review, or testing.
+This list is exhaustive. The main agent must not inspect source or tests for professional judgment, use CodeGraph, operate browser or prototype tools, edit business/test/runtime files, run project commands, diagnose root causes, design architecture or UI, implement, debug, test, or review. It cannot substitute its own professional PASS or FAIL for any specialist.
+
+Only the product-management guide may be loaded into the main-agent context. Architecture, UI, frontend, backend, testing, and review guides are passed to and read by their corresponding specialists.
 
 After accepting an implementation result, the main agent performs a direct gate handoff: deterministic result and path validation, required Git commit/integration, candidate freeze, then quality-agent dispatch. It must not rerun project commands, start containers or servers, modify runtime configuration, inspect the page, or perform a candidate preflight. The implementation specialist owns pre-handoff self-checks; the tester and reviewer own all candidate-bound verification.
 
@@ -21,7 +24,7 @@ After accepting an implementation result, the main agent performs a direct gate 
 
 Every specialist execution has one immutable dispatch ID bound to its task, role, worktree, pre-execution snapshot, brief digest, and real subagent session or task handle.
 
-The main agent prepares the environment before recording the dispatch. Once any dispatch is `waiting`, the main agent is coordination-only. It may record other preplanned independent dispatches and wait for messages, but it must not edit project files, run project commands, use CodeGraph to perform the assigned investigation, operate browser or prototype tools, implement, test, review, commit, cherry-pick, change task status, freeze a candidate, record a gate, or advance the workflow.
+The main agent prepares only orchestration artifacts before recording the dispatch: worktree registration, immutable brief, role capability, and snapshot. Once any dispatch is `waiting`, the main agent is coordination-only. It may record other preplanned independent dispatches and wait for messages, but it must not edit project files, run project commands, use CodeGraph, operate browser or prototype tools, implement, test, review, commit, cherry-pick, change task status, freeze a candidate, record a gate, or advance the workflow.
 
 The specialist copies the supplied `dispatchId` into its result. The main agent binds the returned result to that dispatch with `record-attempt`; fabricated, omitted, reused, or mismatched IDs fail closed. A failed start, termination, or timeout closes as a `blocked` or `rejected` attempt before retrying, blocking, or cancelling the run. The main agent never takes over a waiting role.
 

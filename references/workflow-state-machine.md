@@ -66,6 +66,8 @@ brief recorded
 
 While any dispatch is `waiting`, the main agent is coordination-only. State transitions, task updates, candidate changes, gate or risk recording, finish, commits, and cherry-picks fail closed. Project execution and professional role work are also prohibited by contract. Additional independent dispatches may be recorded before the main agent waits.
 
+The same professional-role boundary applies when no dispatch is waiting. The main agent may write requirements and perform workflow/Git mechanics only. Source analysis, technical discovery, diagnosis, design, implementation, debugging, test execution, runtime preparation, browser/prototype operation, and code review always require a specialist dispatch.
+
 Main-agent browser relay is disabled. A browser-required task cannot record a brief with the main-only `codex-browser` provider and must pause until the user selects a specialist-direct provider for a new run. Frontend and tester roles may use that provider directly for their separate responsibilities. If it is unavailable, record the affected role's blocked evidence request and remediate the provider rather than asking the main agent to browse.
 
 An accepted implementation attempt hands off directly to candidate freeze and gate dispatch. The orchestration interval between them permits only deterministic result/policy validation and necessary Git commit, integration, clean-HEAD, and candidate-freeze operations. It forbids main-agent project commands, runtime or container preparation, temporary project edits, CodeGraph investigation, and browser or prototype work. Gate specialists prepare and verify the frozen candidate themselves.
