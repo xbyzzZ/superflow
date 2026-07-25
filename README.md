@@ -120,12 +120,13 @@ The main agent performs these core steps:
 3. Clarify requirements and define observable acceptance criteria.
 4. Route only the required specialist roles.
 5. Create an integration worktree and optional independent task worktrees.
-6. Record each dispatch, pass its immutable ID to the specialist, and wait without overlapping the assigned work.
-7. Bind each returned result to its dispatch, then validate the result, actual diff, tool evidence, and Git snapshot.
-8. Commit only explicitly authorized paths.
-9. Freeze the integration worktree’s real HEAD as the candidate.
-10. Record tester and reviewer results against the same candidate SHA.
-11. Finish only after every planned task is done and both gates pass, or after the user explicitly accepts each current failed gate.
+6. Route browser access explicitly: Codex Browser facts are collected by the main agent before dispatch and independently adjudicated by the tester; direct providers stay with the specialist.
+7. Record each dispatch, pass its immutable ID and any SHA-256-bound browser artifact to the specialist, and wait without overlapping the assigned work.
+8. Bind each returned result to its dispatch, then validate the result, actual diff, tool evidence, and Git snapshot.
+9. Commit only explicitly authorized paths.
+10. Freeze the integration worktree’s real HEAD as the candidate.
+11. Record tester and reviewer results against the same candidate SHA.
+12. Finish only after every planned task is done and both gates pass, or after the user explicitly accepts each current failed gate.
 
 ## Candidate and Dual-Gate Approval
 
@@ -183,6 +184,8 @@ gates/
 ~~~
 
 Each planned task freezes its role, dependencies, authorized paths, acceptance criteria, exact verification commands, and observable results. Briefs, dispatch routing, worktree registrations, every accepted or rejected attempt, and candidate-bound gates are retained as audit artifacts. A waiting dispatch is bound to its task, role, worktree, brief, snapshot, and real subagent session; state progression and Git writes remain locked until its result is recorded. `state.json` is validated against the bundled Schema and cross-field invariants. `events.jsonl` is an append-only revision chain with state hashes and event-to-event hashes. Writes use a process lock and revision compare-and-swap to reject stale concurrent updates.
+
+Browser access is also frozen in the brief. `codex-browser` uses a main-agent relay because the in-app browser session is not assumed to exist in a subagent: the main agent captures facts before dispatch, the state script copies and hashes the artifact, and the tester independently adjudicates it. `chrome-mcp` and custom providers are specialist-direct by default. If a direct provider is unavailable, the specialist closes its dispatch with a structured evidence request; the main agent may collect the requested facts only after the waiting lock is released and must start a new dispatch.
 
 ## Role-Isolated Memory
 

@@ -246,6 +246,9 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
+        "browser_evidence": {
+          "$ref": "#/$defs/browserEvidence"
+        },
         "started_at": {"type": "string", "format": "date-time"},
         "completed_at": {
           "oneOf": [
@@ -258,6 +261,29 @@
             {"type": "string", "minLength": 1},
             {"type": "null"}
           ]
+        }
+      }
+    },
+    "browserEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "collector_role",
+        "collector_task_id",
+        "collector_session",
+        "artifact_path",
+        "artifact_sha256"
+      ],
+      "properties": {
+        "provider": {"type": "string", "minLength": 1},
+        "collector_role": {"const": "product-manager"},
+        "collector_task_id": {"type": "string", "minLength": 1},
+        "collector_session": {"type": "string", "minLength": 1},
+        "artifact_path": {"type": "string", "minLength": 1},
+        "artifact_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
         }
       }
     },

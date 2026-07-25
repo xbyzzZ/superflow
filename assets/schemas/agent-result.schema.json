@@ -92,6 +92,9 @@
     "memoryRecall": {
       "$ref": "#/$defs/memoryRecall"
     },
+    "browserEvidenceRequest": {
+      "$ref": "#/$defs/browserEvidenceRequest"
+    },
     "workflowUpdateRequest": {
       "$ref": "#/$defs/workflowUpdateRequest"
     },
@@ -181,6 +184,65 @@
         "selected": {
           "type": "integer",
           "minimum": 0
+        }
+      }
+    },
+    "browserEvidenceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "page",
+        "actions",
+        "viewports",
+        "requiredArtifacts",
+        "reason"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "page": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "viewports": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "requiredArtifacts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "screenshot",
+              "dom-snapshot",
+              "console-log",
+              "network-log",
+              "interaction-log"
+            ]
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },

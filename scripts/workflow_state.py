@@ -54,6 +54,14 @@ STATE_SCHEMA = json.loads(
         encoding="utf-8"
     )
 )
+AGENT_RESULT_SCHEMA = json.loads(
+    (
+        Path(__file__).resolve().parents[1]
+        / "assets"
+        / "schemas"
+        / "agent-result.schema.json"
+    ).read_text(encoding="utf-8")
+)
 
 
 class StateError(RuntimeError):
@@ -707,6 +715,8 @@ class WorkflowState:
             "verificationCommands",
             "observableResults",
             "browserProvider",
+            "browserRequired",
+            "browserAccessMode",
             "uiPrototypeProvider",
             "beforeSnapshot",
             "resultSchema",
@@ -727,6 +737,20 @@ class WorkflowState:
             or brief["observableResults"] != task["observableResults"]
         ):
             raise StateError("The task brief does not match the frozen task contract")
+        expected_browser = state["tool_config"]["browser"]["provider"]
+        expected_access_mode = (
+            "main-relay"
+            if expected_browser == "codex-browser"
+            else "specialist-direct"
+        )
+        if (
+            brief["browserProvider"] != expected_browser
+            or not isinstance(brief["browserRequired"], bool)
+            or brief["browserAccessMode"] != expected_access_mode
+        ):
+            raise StateError(
+                "The task brief browser routing does not match the frozen project provider"
+            )
         self._validate_brief_static_context(task["role"], brief)
         path = self.directory / "briefs" / f"{task_id}.json"
         if path.exists():
@@ -791,6 +815,7 @@ class WorkflowState:
         session_id: str,
         before: Any,
         memory_capability: Any,
+        browser_evidence: Any = None,
     ) -> dict[str, Any]:
         state = self.load()
         self._require_mutable(state)
@@ -831,6 +856,12 @@ class WorkflowState:
             role,
             memory_capability,
         )
+        recorded_browser_evidence = self._record_dispatch_browser_evidence(
+            task_id,
+            role,
+            brief,
+            browser_evidence,
+        )
         if any(
             item.get("memory_capability_digest") == memory_capability_digest
             for item in state.get("dispatches", {}).values()
@@ -856,6 +887,11 @@ class WorkflowState:
             "before_digest": self._digest(before),
             "brief_digest": self._digest(brief),
             "memory_capability_digest": memory_capability_digest,
+            **(
+                {"browser_evidence": recorded_browser_evidence}
+                if recorded_browser_evidence is not None
+                else {}
+            ),
             "started_at": _now(),
             "completed_at": None,
             "attempt_id": None,
@@ -872,6 +908,171 @@ class WorkflowState:
             },
         )
         return dispatch
+
+    def _record_dispatch_browser_evidence(
+        self,
+        task_id: str,
+        role: str,
+        brief: dict[str, Any],
+        browser_evidence: Any,
+    ) -> dict[str, Any] | None:
+        requires_relay = (
+            brief.get("browserRequired") is True
+            and brief.get("browserAccessMode") == "main-relay"
+        )
+        if browser_evidence is None:
+            if requires_relay:
+                raise StateError(
+                    "A main-relay browser task requires recorded evidence before dispatch"
+                )
+            return None
+        source = Path(browser_evidence).resolve() if isinstance(browser_evidence, str) else None
+        if source is None or not source.is_file():
+            raise StateError("Browser relay evidence must be an existing JSON file")
+        try:
+            payload = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise StateError("Browser relay evidence must be valid UTF-8 JSON") from exc
+        required = {
+            "provider",
+            "collectorRole",
+            "collectorTaskId",
+            "collectorSession",
+            "page",
+            "actions",
+            "result",
+            "artifacts",
+            "capturedAt",
+        }
+        if not isinstance(payload, dict) or set(payload) != required:
+            raise StateError("Browser relay evidence has an invalid structure")
+        if (
+            payload["provider"] != brief.get("browserProvider")
+            or payload["collectorRole"] != "product-manager"
+            or payload["collectorTaskId"] != task_id
+            or not isinstance(payload["collectorSession"], str)
+            or not payload["collectorSession"].strip()
+            or not isinstance(payload["page"], str)
+            or not payload["page"].strip()
+            or not isinstance(payload["actions"], list)
+            or not payload["actions"]
+            or not all(isinstance(item, str) and item.strip() for item in payload["actions"])
+            or not isinstance(payload["result"], str)
+            or not payload["result"].strip()
+            or not isinstance(payload["artifacts"], list)
+            or not payload["artifacts"]
+            or not isinstance(payload["capturedAt"], str)
+            or not payload["capturedAt"].strip()
+        ):
+            raise StateError(
+                "Browser relay evidence does not match its provider, task, or provenance"
+            )
+        evidence_directory = self.directory / "browser-evidence"
+        evidence_directory.mkdir(parents=True, exist_ok=True)
+        copied_artifacts: list[dict[str, str]] = []
+        for item in payload["artifacts"]:
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"kind", "path"}
+                or item.get("kind")
+                not in {
+                    "screenshot",
+                    "dom-snapshot",
+                    "console-log",
+                    "network-log",
+                    "interaction-log",
+                }
+                or not isinstance(item.get("path"), str)
+            ):
+                raise StateError("Browser relay artifact entries are invalid")
+            artifact_source = Path(item["path"]).resolve()
+            if not artifact_source.is_file() or artifact_source.stat().st_size > 20_000_000:
+                raise StateError(
+                    "Browser relay artifacts must be existing files no larger than 20 MB"
+                )
+            content = artifact_source.read_bytes()
+            artifact_digest = hashlib.sha256(content).hexdigest()
+            artifact_destination = evidence_directory / (
+                f"{artifact_digest}-{artifact_source.name}"
+            )
+            if not artifact_destination.exists():
+                descriptor, temporary = tempfile.mkstemp(
+                    prefix=".browser-artifact.",
+                    dir=evidence_directory,
+                )
+                try:
+                    with os.fdopen(descriptor, "wb") as handle:
+                        handle.write(content)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    os.replace(temporary, artifact_destination)
+                finally:
+                    if os.path.exists(temporary):
+                        os.unlink(temporary)
+            copied_artifacts.append(
+                {
+                    "kind": item["kind"],
+                    "path": str(artifact_destination),
+                    "sha256": artifact_digest,
+                }
+            )
+        payload = {**payload, "artifacts": copied_artifacts}
+        canonical = json.dumps(
+            payload,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ) + "\n"
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        destination = evidence_directory / f"{digest}.json"
+        if not destination.exists():
+            descriptor, temporary = tempfile.mkstemp(
+                prefix=".browser-evidence.",
+                dir=evidence_directory,
+            )
+            try:
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    handle.write(canonical)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, destination)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+        return {
+            "provider": payload["provider"],
+            "collector_role": "product-manager",
+            "collector_task_id": task_id,
+            "collector_session": payload["collectorSession"].strip(),
+            "artifact_path": str(destination),
+            "artifact_sha256": digest,
+        }
+
+    @staticmethod
+    def _browser_relay_is_intact(relay: Any) -> bool:
+        if not isinstance(relay, dict):
+            return False
+        manifest = Path(relay.get("artifact_path", ""))
+        if not manifest.is_file():
+            return False
+        content = manifest.read_bytes()
+        if hashlib.sha256(content).hexdigest() != relay.get("artifact_sha256"):
+            return False
+        try:
+            payload = json.loads(content)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return False
+        artifacts = payload.get("artifacts") if isinstance(payload, dict) else None
+        if not isinstance(artifacts, list) or not artifacts:
+            return False
+        return all(
+            isinstance(item, dict)
+            and set(item) == {"kind", "path", "sha256"}
+            and Path(item["path"]).is_file()
+            and hashlib.sha256(Path(item["path"]).read_bytes()).hexdigest()
+            == item["sha256"]
+            for item in artifacts
+        )
 
     def record_attempt(
         self,
@@ -919,6 +1120,31 @@ class WorkflowState:
             raise StateError("The attempt after snapshot does not match the current worktree")
         if result.get("dispatchId") not in {None, dispatch_id}:
             raise StateError("The result dispatchId does not match the recorded dispatch")
+        evidence_request = result.get("browserEvidenceRequest")
+        if evidence_request is not None:
+            try:
+                validate(result, AGENT_RESULT_SCHEMA)
+            except SchemaValidationError as exc:
+                raise StateError(
+                    f"A browser evidence request must conform to the Agent result schema: {exc}"
+                ) from exc
+            if (
+                role != "tester"
+                or result.get("status") not in {"blocked", "partial"}
+                or not isinstance(evidence_request, dict)
+                or evidence_request.get("provider")
+                != state["tool_config"]["browser"]["provider"]
+                or any(
+                    isinstance(item, dict)
+                    and item.get("type") == "browser"
+                    and item.get("status") == "success"
+                    for item in result.get("evidence", [])
+                )
+            ):
+                raise StateError(
+                    "A browser evidence request must be a blocked or partial tester result "
+                    "for the frozen provider without successful browser evidence"
+                )
         checked: dict[str, Any] | None = None
         if outcome == "accepted":
             if result.get("dispatchId") != dispatch_id or result.get("status") != "success":
@@ -930,6 +1156,35 @@ class WorkflowState:
                 isinstance(item, dict) and item.get("type") == "browser"
                 for item in result.get("evidence", [])
             )
+            brief_path = self.directory / "briefs" / f"{task_id}.json"
+            brief = json.loads(brief_path.read_text(encoding="utf-8"))
+            if brief.get("browserRequired") is True and not browser:
+                raise StateError(
+                    "A browser-required task cannot be accepted without browser evidence"
+                )
+            relay = dispatch.get("browser_evidence")
+            if browser:
+                successful_browser = [
+                    item
+                    for item in result.get("evidence", [])
+                    if isinstance(item, dict)
+                    and item.get("type") == "browser"
+                    and item.get("status") == "success"
+                ]
+                if brief.get("browserAccessMode") == "main-relay":
+                    if not self._browser_relay_is_intact(relay) or not any(
+                        item.get("provider") == relay.get("provider")
+                        and item.get("collectorRole") == relay.get("collector_role")
+                        and item.get("collectorTaskId") == relay.get("collector_task_id")
+                        and item.get("collectorSession") == relay.get("collector_session")
+                        and item.get("artifactSha256") == relay.get("artifact_sha256")
+                        and item.get("reference") == relay.get("artifact_path")
+                        and item.get("adjudicatedBy") == role
+                        for item in successful_browser
+                    ):
+                        raise StateError(
+                            "Main-relay browser evidence must match the dispatch artifact"
+                        )
             checked = check_policy(
                 result,
                 task["authorizedPaths"],
@@ -1524,6 +1779,7 @@ def _build_parser() -> argparse.ArgumentParser:
     dispatch.add_argument("--session-id", required=True)
     dispatch.add_argument("--before", required=True, type=_json_argument)
     dispatch.add_argument("--memory-capability", required=True)
+    dispatch.add_argument("--browser-evidence")
     attempt = sub.add_parser("record-attempt")
     attempt.add_argument("run_id")
     attempt.add_argument("task_id")
@@ -1582,6 +1838,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.session_id,
                     args.before,
                     args.memory_capability,
+                    args.browser_evidence,
                 )
             elif args.command == "record-attempt":
                 result = store.record_attempt(

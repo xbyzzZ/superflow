@@ -140,12 +140,12 @@ python3 <superflow>/scripts/git_workspace.py create-worktree \
 - Every brief is self-contained and includes work directory, paths, acceptance, baseline, result Schema, and the absolute `builtinGuide` for architect, UI, frontend, or backend.
 - Record the exact brief before dispatch with `workflow_state.py record-brief`. Record every accepted, rejected, blocked, retry, and repair result with `record-attempt`; never overwrite a previous attempt.
 - Put the absolute `roleMemoryScript` in the immutable task brief. Before every dispatch or retry, issue a fresh capability bound to the exact role, run, and task; pass it to `record-dispatch` and supply it to the subagent as `roleMemoryCapability` in the task dispatch wrapper. `record-brief` validates the script and required role guide; `record-dispatch` validates the capability scope and stores only its digest. Never omit, reuse, persist in the brief, or share a capability between roles, tasks, or attempts.
-- Relevant briefs include `browserProvider`, `uiPrototypeProvider`, and custom details.
+- Relevant briefs include `browserProvider`, `browserRequired`, the derived `browserAccessMode`, `uiPrototypeProvider`, and custom details. Use `main-relay` for `codex-browser`; use `specialist-direct` for `chrome-mcp` and custom providers.
 - Snapshot HEAD and refs before and after dispatch. `policy_check.py` may precheck output; gate recording rechecks policy and current repository facts.
 
 Dispatch is a binding protocol, not a notification:
 
-1. prepare the worktree, dependencies, runtime, candidate, brief, and `before` snapshot before dispatch;
+1. prepare the worktree, dependencies, runtime, candidate, brief, and `before` snapshot before dispatch; for a browser-required `codex-browser` task, collect narrowly scoped page facts first and prepare a provenance-complete JSON artifact without adjudicating them;
 2. reserve the stable subagent session or task handle;
 3. record the dispatch and capture its returned `dispatch_id`;
 4. supply that exact ID with the task dispatch and require it as `dispatchId` in the result;
@@ -166,7 +166,7 @@ python3 <superflow>/scripts/workflow_state.py --project <task-worktree> \
   --reason 'Schema, policy, and repository evidence passed'
 ```
 
-If an agent fails to start, terminates, or times out, record a `blocked` or `rejected` attempt for that dispatch before retrying, blocking, or cancelling the run. The main agent may relay evidence that only its selected provider session can collect, but only after the specialist requests it; this exception does not authorize the main agent to perform the specialist's implementation, review, test adjudication, or other assigned work. Never take over a waiting role merely to keep the run moving.
+If an agent fails to start, terminates, or times out, record a `blocked` or `rejected` attempt for that dispatch before retrying, blocking, or cancelling the run. For `codex-browser`, record the main-agent artifact before dispatch and pass `--browser-evidence <artifact.json>` to `record-dispatch`. For a direct provider unavailable to the specialist, require a structured `browserEvidenceRequest`, record that attempt to release the waiting lock, collect only the requested facts, and start a new dispatch with the copied artifact. This relay never authorizes the main agent to implement, review, test, adjudicate, or operate a browser while any dispatch is waiting.
 
 ```bash
 python3 <superflow>/scripts/policy_check.py \
@@ -180,7 +180,7 @@ python3 <superflow>/scripts/policy_check.py \
   --code
 ```
 
-Add `--ui` for prototype results or `--browser` for real-page results. Provider evidence must match project configuration. Successful browser and prototype evidence names the actual collector role, task, session, artifact SHA-256, and the result role that adjudicated it. The main agent may relay evidence it actually collected, but the tester must identify the main agent as collector instead of claiming collection. Never commit or mark success after a policy failure.
+Add `--ui` for prototype results or `--browser` for real-page results. Provider evidence must match project configuration. Successful browser and prototype evidence names the actual collector role, task, session, artifact SHA-256, and the result role that adjudicated it. Relayed browser evidence must match the immutable artifact bound to that dispatch: the tester identifies `product-manager` as collector and itself as adjudicator. Never commit or mark success after a policy failure.
 
 Require the specialist result to report successful `memoryRecall` metadata without the capability, query, or recalled content. After the result passes Schema and policy checks, ingest its role-bound memory requests, then revoke the capability:
 

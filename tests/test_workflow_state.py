@@ -200,7 +200,9 @@ class WorkflowStateTests(unittest.TestCase):
         task_id: str = "t1",
         role: str = "frontend-developer",
     ) -> dict:
-        task = next(item for item in store.load()["plan"] if item["id"] == task_id)
+        state = store.load()
+        task = next(item for item in state["plan"] if item["id"] == task_id)
+        browser_provider = state["tool_config"]["browser"]["provider"]
         brief = {
             "runId": store.run_id,
             "taskId": task_id,
@@ -213,7 +215,13 @@ class WorkflowStateTests(unittest.TestCase):
             "acceptanceCriteria": task["acceptanceCriteria"],
             "verificationCommands": task["verificationCommands"],
             "observableResults": task["observableResults"],
-            "browserProvider": "chrome-mcp",
+            "browserProvider": browser_provider,
+            "browserRequired": False,
+            "browserAccessMode": (
+                "main-relay"
+                if browser_provider == "codex-browser"
+                else "specialist-direct"
+            ),
             "uiPrototypeProvider": "penpot-mcp",
             "beforeSnapshot": store._git_snapshot(),
             "resultSchema": "assets/schemas/agent-result.schema.json",
@@ -230,6 +238,16 @@ class WorkflowStateTests(unittest.TestCase):
                 (SCRIPTS.parent / "references" / guide_by_role[role]).resolve()
             )
         return brief
+
+    def make_tester_result(
+        self,
+        dispatch_id: str,
+        candidate_sha: str,
+        task_id: str = "t1",
+    ) -> dict:
+        result = self.gate_result("tester", "PASS", candidate_sha, task_id)
+        result["dispatchId"] = dispatch_id
+        return result
 
     def memory_capability(
         self,
@@ -764,6 +782,139 @@ class WorkflowStateTests(unittest.TestCase):
             "accepted",
         )
         store.set_task("t1", "done")
+
+    def test_codex_browser_uses_closed_dispatch_relay_before_tester_adjudication(
+        self,
+    ) -> None:
+        project_config.write_config(
+            self.project,
+            project_config.build_config("codex-browser", "penpot-mcp"),
+        )
+        task = {
+            **contracted_task(),
+            "role": "tester",
+            "authorizedPaths": ["tests/**"],
+        }
+        store = workflow_state.WorkflowState.create(
+            self.project,
+            [task],
+            "sf-20260724T010220Z-1234abde",
+            require_contract=True,
+        )
+        store.register_worktree(self.project, "main", "HEAD")
+        for status in ("preflight", "discovery", "requirements_ready", "planned"):
+            store.transition(status)
+        store.transition("implementing")
+        store.transition("verifying", "t1")
+        store.set_candidate(self.sha_one)
+        brief = self.valid_brief(store, role="tester")
+        brief["browserRequired"] = True
+        store.record_brief("t1", brief)
+        snapshot = store._git_snapshot()
+
+        with self.assertRaisesRegex(workflow_state.StateError, "main-relay"):
+            store.record_dispatch(
+                "t1",
+                "tester",
+                "tester-session-without-relay",
+                snapshot,
+                self.memory_capability(store, role="tester"),
+            )
+
+        source = store.directory / "browser-relay-source.json"
+        screenshot = store.directory / "browser-page.png"
+        screenshot.write_bytes(b"browser screenshot fixture")
+        source.write_text(
+            __import__("json").dumps(
+                {
+                    "provider": "codex-browser",
+                    "collectorRole": "product-manager",
+                    "collectorTaskId": "t1",
+                    "collectorSession": "main-browser-session-1",
+                    "page": "http://localhost:8080/example",
+                    "actions": ["Open the page", "Exercise the target interaction"],
+                    "result": "The requested states were captured",
+                    "artifacts": [
+                        {
+                            "kind": "screenshot",
+                            "path": str(screenshot),
+                        }
+                    ],
+                    "capturedAt": "2026-07-24T01:02:03Z",
+                }
+            ),
+            encoding="utf-8",
+        )
+        dispatch = store.record_dispatch(
+            "t1",
+            "tester",
+            "tester-session-with-relay",
+            snapshot,
+            self.memory_capability(store, role="tester"),
+            str(source),
+        )
+        relay = dispatch["browser_evidence"]
+        result = self.make_tester_result(dispatch["dispatch_id"], self.sha_one)
+        result["evidence"].append(
+            {
+                "type": "browser",
+                "status": "success",
+                "provider": "codex-browser",
+                "reference": relay["artifact_path"],
+                "detail": "The tester independently adjudicated the relayed page evidence",
+                "collectorRole": "product-manager",
+                "collectorTaskId": "t1",
+                "collectorSession": "main-browser-session-1",
+                "artifactSha256": relay["artifact_sha256"],
+                "adjudicatedBy": "tester",
+            }
+        )
+        relay_path = Path(relay["artifact_path"])
+        original_relay = relay_path.read_bytes()
+        relay_path.write_text('{"tampered": true}\n', encoding="utf-8")
+        with self.assertRaisesRegex(workflow_state.StateError, "dispatch artifact"):
+            store.record_attempt(
+                "t1",
+                "tester",
+                "retry",
+                "accepted",
+                result,
+                snapshot,
+                snapshot,
+                "Tampered relay evidence must fail closed",
+                dispatch["dispatch_id"],
+            )
+        relay_path.write_bytes(original_relay)
+        manifest = __import__("json").loads(original_relay)
+        copied_screenshot = Path(manifest["artifacts"][0]["path"])
+        original_screenshot = copied_screenshot.read_bytes()
+        copied_screenshot.write_bytes(b"tampered screenshot")
+        with self.assertRaisesRegex(workflow_state.StateError, "dispatch artifact"):
+            store.record_attempt(
+                "t1",
+                "tester",
+                "retry",
+                "accepted",
+                result,
+                snapshot,
+                snapshot,
+                "Tampered screenshot evidence must fail closed",
+                dispatch["dispatch_id"],
+            )
+        copied_screenshot.write_bytes(original_screenshot)
+        attempt = store.record_attempt(
+            "t1",
+            "tester",
+            "retry",
+            "accepted",
+            result,
+            snapshot,
+            snapshot,
+            "The tester adjudicated immutable relayed browser evidence",
+            dispatch["dispatch_id"],
+        )
+        self.assertEqual(attempt["outcome"], "accepted")
+        self.assertNotEqual(relay["artifact_path"], str(source))
 
     def test_brief_and_dispatch_require_role_memory_and_builtin_guide(self) -> None:
         store = workflow_state.WorkflowState.create(

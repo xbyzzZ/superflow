@@ -23,7 +23,7 @@ The main agent prepares the environment before recording the dispatch. Once any 
 
 The specialist copies the supplied `dispatchId` into its result. The main agent binds the returned result to that dispatch with `record-attempt`; fabricated, omitted, reused, or mismatched IDs fail closed. A failed start, termination, or timeout closes as a `blocked` or `rejected` attempt before retrying, blocking, or cancelling the run. The main agent never takes over a waiting role.
 
-When a selected provider session is available only to the main agent, a specialist may request narrowly scoped evidence collection. The main agent may relay that evidence with accurate collector provenance, but the specialist remains responsible for adjudication. Evidence relay does not authorize overlapping specialist work.
+Browser evidence relay is a separate dispatch phase, never an exception to the waiting lock. For `codex-browser`, the main agent collects the browser facts before dispatch because the in-app browser session is main-agent scoped. For another selected provider that proves unavailable in the specialist session, the specialist closes its dispatch with a structured `browserEvidenceRequest`; only after recording that blocked or partial attempt may the main agent collect the requested facts and start a new dispatch. The specialist remains responsible for adjudication. The main agent never operates a browser while any dispatch is waiting.
 
 ## Routing
 
@@ -58,6 +58,7 @@ Every brief must include:
 - required MCP, browser, and optional Skills;
 - absolute `builtinGuide` path for architect, UI designer, frontend developer, or backend developer;
 - `browserProvider`, `uiPrototypeProvider`, and custom details from project configuration;
+- `browserRequired` and the derived `browserAccessMode`: `main-relay` for `codex-browser`, otherwise `specialist-direct`;
 - verification commands and evidence requirements;
 - pre-execution HEAD and refs snapshot;
 - path to `agent-result.schema.json`;
@@ -65,7 +66,7 @@ Every brief must include:
 
 Do not send the full conversation. Put each exact value in the brief once.
 
-The dispatch wrapper additionally supplies the immutable `dispatchId`, stable subagent session or task handle, and a fresh `roleMemoryCapability` bound to this role, run, task, and attempt. These execution values are created after the brief is frozen and must not be persisted in the brief, reused, or invented by the specialist.
+The dispatch wrapper additionally supplies the immutable `dispatchId`, stable subagent session or task handle, a fresh `roleMemoryCapability` bound to this role, run, task, and attempt, and any immutable `browserEvidence` recorded for that dispatch. These execution values are created after the brief is frozen and must not be invented by the specialist.
 
 `record-brief` fails closed unless the role-memory script is the absolute script from the running Superflow installation and every role that consumes a built-in professional guide receives its exact absolute guide path. `record-dispatch` resolves a newly issued capability immediately before each dispatch and records only its SHA-256 digest. An empty recall result is valid; a missing, reused, revoked, expired, fabricated, or cross-role capability is not.
 
@@ -109,6 +110,8 @@ A subagent returns exactly one Schema-valid JSON object:
 ```
 
 Tester and reviewer also provide `candidateSha`. Every evidence item includes exact `type`, `status`, `reference`, and `detail`; browser and UI-prototype evidence also includes a provider matching project configuration. Successful external evidence additionally records `collectorRole`, `collectorTaskId`, `collectorSession`, `artifactSha256`, and `adjudicatedBy`. When the main agent relays a browser session to the tester, `collectorRole` remains `product-manager` and `adjudicatedBy` is `tester`; the tester must never claim to have collected someone else's evidence. A tool name in prose is not successful evidence. Run `policy_check.py`, then inspect actual files and output.
+
+When a direct browser provider is unavailable or relayed facts are insufficient, the tester returns `blocked` or `partial` with `browserEvidenceRequest`. The request specifies the configured provider, exact page, ordered actions, viewports, required artifacts, and reason. It contains no credentials and no PASS/FAIL adjudication. A result with this request cannot also claim successful browser evidence.
 
 Every specialist result includes successful `memoryRecall` metadata and `memoryWriteRequests`, even when empty. `available: 0, selected: 0` is a valid first-run recall. A missing or failed recall cannot produce an accepted attempt. A role may propose at most three durable, evidence-backed records for its own future executions. It never names a target role and never directly writes memory. Ingest requests only after the complete result passes Schema and policy checks.
 

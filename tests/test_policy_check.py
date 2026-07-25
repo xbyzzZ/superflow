@@ -398,6 +398,32 @@ class PolicyCheckTests(unittest.TestCase):
         )
         self.assertTrue(accepted["ok"], accepted["violations"])
 
+    def test_browser_evidence_request_cannot_claim_success(self) -> None:
+        result = base_result(
+            role="tester",
+            filesChanged=[],
+            candidateSha=SHA,
+            browserEvidenceRequest={
+                "provider": "codex-browser",
+                "page": "http://localhost:8080/example",
+                "actions": ["Open the page"],
+                "viewports": ["180x800"],
+                "requiredArtifacts": ["screenshot", "interaction-log"],
+                "reason": "The selected session is not available to this tester",
+            },
+        )
+        checked = self.check(
+            result,
+            expected_role="tester",
+            expected_task="task-1",
+            expected_candidate=SHA,
+            expected_browser_provider="codex-browser",
+        )
+        self.assertIn(
+            "browser_evidence_request",
+            {item["code"] for item in checked["violations"]},
+        )
+
     def test_full_schema_is_enforced(self) -> None:
         result = base_result(verification={})
         checked = self.check(result)

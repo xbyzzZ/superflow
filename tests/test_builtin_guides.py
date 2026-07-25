@@ -47,6 +47,24 @@ class BuiltinGuidesTests(unittest.TestCase):
                     path.read_text(encoding="utf-8"),
                 )
 
+    def test_browser_relay_closes_wait_before_main_agent_collection(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        tester = (
+            ROOT / "assets" / "agent-templates" / "tester.toml"
+        ).read_text(encoding="utf-8")
+        role_contracts = (
+            ROOT / "references" / "role-contracts.md"
+        ).read_text(encoding="utf-8")
+        for content in (skill, tester, role_contracts):
+            self.assertIn("browserEvidenceRequest", content)
+            self.assertIn("browserEvidence", content)
+        self.assertIn("never expect or request an inherited Codex Browser session", tester)
+        self.assertIn("only after recording that blocked or partial attempt", role_contracts)
+        self.assertIn(
+            "never operates a browser while any dispatch is waiting",
+            role_contracts,
+        )
+
     """Verify that built-in expertise never degrades into external Skill dependencies."""
 
     def test_skill_directly_links_all_builtin_guides(self) -> None:

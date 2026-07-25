@@ -171,6 +171,8 @@ class GitWorkspaceTests(unittest.TestCase):
                 "verificationCommands": ["python3 -m unittest"],
                 "observableResults": ["The focused test passes"],
                 "browserProvider": "codex-browser",
+                "browserRequired": False,
+                "browserAccessMode": "main-relay",
                 "uiPrototypeProvider": "penpot-mcp",
                 "beforeSnapshot": snapshot,
                 "resultSchema": "assets/schemas/agent-result.schema.json",

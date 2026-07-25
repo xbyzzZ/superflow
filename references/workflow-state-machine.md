@@ -58,6 +58,8 @@ brief recorded
 
 While any dispatch is `waiting`, the main agent is coordination-only. State transitions, task updates, candidate changes, gate or risk recording, finish, commits, and cherry-picks fail closed. Project execution and professional role work are also prohibited by contract. Additional independent dispatches may be recorded before the main agent waits.
 
+Browser relay never runs inside this waiting interval. A `codex-browser` task records main-agent browser evidence before dispatch. If a direct provider is unavailable to the specialist, that dispatch first closes with a blocked or partial `browserEvidenceRequest`; the main agent then collects the requested facts and records a new dispatch containing an immutable copied artifact and SHA-256.
+
 A new run freezes project browser and UI-provider selection in `state.json.tool_config`. If project configuration changes, the old run may only become `blocked` or `cancelled`.
 
 ## Commands
@@ -88,6 +90,8 @@ python3 scripts/workflow_state.py --project <repo> record-gate \
 python3 scripts/workflow_state.py --project <repo> record-risk \
   <run-id> test --accepted-by '<user>' --reason '<reason>'
 ```
+
+For a browser relay, add `--browser-evidence <evidence.json>`. The source JSON must identify the frozen provider, `collectorRole=product-manager`, task, browser session, page, actions, result, capture time, and a non-empty `artifacts` array. Each artifact names a supported kind and source path. The state script copies every artifact plus a canonical manifest into the shared run ledger, verifies their SHA-256 values at acceptance, and returns the immutable manifest path and digest. Supply that returned metadata to the new specialist dispatch as `browserEvidence`.
 
 `plan.json` is an array of complete task contracts. Each task requires `id`, `title`, `role`, `dependencies`, `authorizedPaths`, `acceptanceCriteria`, `verificationCommands`, `observableResults`, and `status`; dependencies must form an acyclic graph.
 

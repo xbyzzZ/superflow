@@ -243,6 +243,33 @@ def check_policy(
     if result.get("status") not in STATUSES:
         add("status", "Invalid agent status")
 
+    browser_request = result.get("browserEvidenceRequest")
+    if browser_request is not None:
+        if role != "tester" or result.get("status") not in {"blocked", "partial"}:
+            add(
+                "browser_evidence_request",
+                "Only a blocked or partial tester result may request browser evidence",
+            )
+        if (
+            expected_browser_provider is not None
+            and isinstance(browser_request, dict)
+            and browser_request.get("provider") != expected_browser_provider
+        ):
+            add(
+                "browser_evidence_request",
+                "The browser evidence request must use the frozen project provider",
+            )
+        if any(
+            isinstance(item, dict)
+            and item.get("type") == "browser"
+            and item.get("status") == "success"
+            for item in result.get("evidence", [])
+        ):
+            add(
+                "browser_evidence_request",
+                "A browser evidence request cannot accompany successful browser evidence",
+            )
+
     for index, request in enumerate(result.get("memoryWriteRequests", [])):
         try:
             validate_request(request)
